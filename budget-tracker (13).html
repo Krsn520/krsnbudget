@@ -1,0 +1,2251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Budget Tracker</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0d0d0d; font-family: 'DM Mono', 'Courier New', monospace; color: #e8e0d5; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #1a1a1a; }
+    ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+    .card { background: #181818; border: 1px solid #242424; border-radius: 12px; }
+    .stat-card { background: #181818; border: 1px solid #242424; border-radius: 12px; padding: 16px 18px; transition: border-color 0.2s; }
+    .stat-card:hover { border-color: #3a3a3a; }
+    .btn { cursor: pointer; border: none; border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+    .btn-primary { background: #e8e0d5; color: #0d0d0d; padding: 10px 20px; }
+    .btn-primary:hover { background: #fff; transform: translateY(-1px); }
+    .btn-secondary { background: transparent; color: #aaa; padding: 10px 16px; border: 1px solid #303030; }
+    .btn-secondary:hover { border-color: #666; color: #e8e0d5; }
+    .btn-ghost { background: transparent; color: #666; padding: 6px 12px; border: 1px solid #2a2a2a; border-radius: 7px; font-family: inherit; font-size: 11px; cursor: pointer; transition: all 0.15s; }
+    .btn-ghost:hover { border-color: #555; color: #ccc; }
+    .btn-icon { background: transparent; color: #555; padding: 4px 12px; border: 1px solid #242424; border-radius: 6px; font-size: 15px; line-height: 1; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+    .btn-icon:hover { border-color: #555; color: #ccc; }
+    .btn-danger { background: transparent; color: #444; padding: 4px 8px; border: none; font-size: 17px; line-height: 1; cursor: pointer; font-family: inherit; transition: color 0.15s; }
+    .btn-danger:hover { color: #f43f5e; }
+    .btn-rule { background: transparent; color: #3a3a3a; padding: 3px 7px; border: 1px solid #242424; border-radius: 5px; font-size: 11px; line-height: 1.4; cursor: pointer; font-family: inherit; transition: all 0.15s; flex-shrink: 0; }
+    .btn-rule:hover { border-color: #8b5cf6; color: #8b5cf6; }
+    .btn-reset { background: transparent; color: #555; padding: 6px 12px; border: 1px solid #2a2a2a; border-radius: 7px; font-family: inherit; font-size: 10px; letter-spacing: 0.1em; cursor: pointer; transition: all 0.15s; text-transform: uppercase; }
+    .btn-reset:hover { border-color: #f43f5e44; color: #f43f5e; }
+    .input { background: #111; border: 1px solid #252525; border-radius: 8px; color: #e8e0d5; font-family: inherit; font-size: 13px; padding: 10px 14px; width: 100%; outline: none; transition: border-color 0.2s; }
+    .input:focus { border-color: #666; }
+    .input option { background: #1a1a1a; }
+    .input:disabled { opacity: 0.35; cursor: not-allowed; }
+    .input-sm { background: #111; border: 1px solid #252525; border-radius: 6px; color: #e8e0d5; font-family: inherit; font-size: 12px; padding: 7px 10px; width: 100%; outline: none; transition: border-color 0.2s; }
+    .input-sm:focus { border-color: #666; }
+    .input-sm option { background: #1a1a1a; }
+    .input-error { border-color: #f43f5e88 !important; }
+    .chip { border-radius: 100px; padding: 5px 14px; font-size: 12px; cursor: pointer; border: 1px solid transparent; transition: all 0.15s; font-family: inherit; }
+    .chip-active { background: #e8e0d5; color: #0d0d0d; border-color: #e8e0d5; }
+    .chip-inactive { background: transparent; border-color: #2a2a2a; color: #666; }
+    .chip-inactive:hover { border-color: #555; color: #ccc; }
+    .chip-sm { border-radius: 100px; padding: 3px 10px; font-size: 11px; cursor: pointer; border: 1px solid transparent; transition: all 0.15s; font-family: inherit; }
+    .tx-row { display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-bottom: 1px solid #1c1c1c; transition: background 0.12s; }
+    .tx-row:last-child { border-bottom: none; }
+    .tx-row:hover { background: #1b1b1b; }
+    .tx-row:hover .btn-rule { color: #555; border-color: #2a2a2a; }
+    .edit-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #1c1c1c; transition: background 0.12s; }
+    .edit-row:last-child { border-bottom: none; }
+    .edit-row:hover { background: #1a1a1a; }
+    .group-header:hover { background: #151515 !important; }
+    .fade-in { animation: fadeIn 0.25s ease; }
+    .import-zone { border: 1px dashed #2e2e2e; border-radius: 10px; padding: 28px; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+    .import-zone:hover { border-color: #666; background: #141414; }
+    .tag { display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 100px; letter-spacing: 0.03em; }
+    .tab { cursor: pointer; padding: 6px 16px; border-radius: 8px; font-size: 11px; font-family: inherit; border: none; transition: all 0.15s; letter-spacing: 0.08em; text-transform: uppercase; }
+    .tab-active { background: #242424; color: #e8e0d5; }
+    .tab-inactive { background: transparent; color: #555; }
+    .tab-inactive:hover { color: #999; }
+    .subtab { cursor: pointer; padding: 5px 14px; border-radius: 6px; font-size: 10px; font-family: inherit; border: 1px solid transparent; transition: all 0.15s; letter-spacing: 0.08em; text-transform: uppercase; }
+    .subtab-active { border-color: #3a3a3a; color: #ccc; background: #1e1e1e; }
+    .subtab-inactive { color: #444; }
+    .subtab-inactive:hover { color: #777; }
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1e1e1e; border: 1px solid #333; border-radius: 10px; padding: 11px 20px; font-size: 12px; z-index: 999; white-space: nowrap; animation: toastIn 0.25s ease; }
+    .undo-toast { position: fixed; bottom: 68px; left: 50%; transform: translateX(-50%); background: #1e1e1e; border: 1px solid #333; border-radius: 10px; padding: 9px 9px 9px 16px; font-size: 12px; z-index: 998; animation: toastIn 0.25s ease; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+    .sl { font-size: 10px; letter-spacing: 0.18em; color: #444; text-transform: uppercase; margin-bottom: 14px; }
+    .month-select { background: #111; border: 1px solid #252525; border-radius: 7px; color: #ccc; font-family: inherit; font-size: 12px; padding: 7px 12px; outline: none; cursor: pointer; }
+    .month-select option { background: #1a1a1a; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .add-form { background: #111; border-top: 1px solid #1e1e1e; border-radius: 0 0 12px 12px; padding: 14px; }
+    .pattern-option { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; padding: 10px 12px; border-radius: 8px; border: 1px solid #1e1e1e; background: transparent; transition: all 0.15s; }
+    .pattern-option.selected { border-color: #555; background: #1e1e1e; }
+    .pattern-option:hover { border-color: #333; }
+    .radio-dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #333; background: transparent; flex-shrink: 0; margin-top: 2px; transition: all 0.15s; }
+    .radio-dot.selected { border-color: #e8e0d5; background: #e8e0d5; }
+    .remember-box { padding: 12px 14px; background: #111; border-radius: 8px; border: 1px solid #1e1e1e; }
+    @media (max-width: 520px) { .grid-3 { grid-template-columns: 1fr; } .grid-2 { grid-template-columns: 1fr; } }
+    @keyframes fadeIn  { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(6px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+    @keyframes modalIn { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    .modal-overlay { position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: rgba(0,0,0,0.76); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; overflow-y: auto; }
+    .modal-box { animation: modalIn 0.18s ease; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+const { useState, useMemo, useEffect, useRef } = React;
+
+// ── Default Taxonomy ──────────────────────────────────────────────────────────
+const DEFAULT_TAXONOMY = [
+  { category:"Groceries",         subcategory:"Groceries",         type:"expense",     budget:0 },
+  { category:"Utilities",         subcategory:"Phone Bill",        type:"expense",     budget:0 },
+  { category:"Utilities",         subcategory:"Internet Bill",     type:"expense",     budget:0 },
+  { category:"Entertainment",     subcategory:"Movies",            type:"expense",     budget:0 },
+  { category:"Work",              subcategory:"Paycheque",         type:"income",      budget:0 },
+  { category:"Not Assigned",      subcategory:"Not Assigned",      type:"expense",     budget:0 },
+  { category:"Not Assigned",      subcategory:"Not Assigned",      type:"income",      budget:0 },
+  { category:"Not Assigned",      subcategory:"Not Assigned",      type:"notreported", budget:0 },
+];
+
+// ── Default Rules ─────────────────────────────────────────────────────────────
+const DEFAULT_DESC_RULES = [];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function computeExpenseCats(taxonomy) {
+  const seen = {}, out = [];
+  taxonomy.forEach(t => { if (t.type !== "income" && !seen[t.category]) { seen[t.category] = 1; out.push(t.category); } });
+  return out;
+}
+function computeIncomeCats(taxonomy) {
+  const seen = {}, out = [];
+  taxonomy.forEach(t => { if (t.type !== "expense" && !seen[t.category]) { seen[t.category] = 1; out.push(t.category); } });
+  return out;
+}
+function getSubcats(taxonomy, cat, tf) {
+  const seen = {}, out = [];
+  taxonomy.forEach(t => {
+    if (t.category === cat && !seen[t.subcategory]) {
+      const match = tf === "notreported" ? t.type === "notreported" : (t.type === tf || t.type === "notreported");
+      if (match) { seen[t.subcategory] = 1; out.push(t.subcategory); }
+    }
+  });
+  return out;
+}
+function getTaxonomyEntry(taxonomy, cat, sub) {
+  return taxonomy.find(t => t.category === cat && t.subcategory === sub) || {};
+}
+
+// ── matchDesc: type:"auto" resolves to income/expense based on amount sign ────
+function matchDesc(rules, desc, amountSign) {
+  for (const r of rules) {
+    try {
+      if (new RegExp(r.pattern, "i").test(desc)) {
+        // "auto" = let the sign decide; explicit types are honoured as-is
+        const resolvedType = r.type === "auto"
+          ? (amountSign >= 0 ? "income" : "expense")
+          : r.type;
+        return { category: r.category, subcategory: r.subcategory, type: resolvedType, matched: true };
+      }
+    } catch(e) {}
+  }
+  return amountSign >= 0
+    ? { category:"Not Assigned", subcategory:"Not Assigned", type:"income",  matched:false }
+    : { category:"Not Assigned", subcategory:"Not Assigned", type:"expense", matched:false };
+}
+
+function parseDate(raw) {
+  if (raw == null || raw === "") return new Date().toISOString().split("T")[0];
+  if (raw instanceof Date) return isNaN(raw.getTime()) ? new Date().toISOString().split("T")[0] : raw.toISOString().split("T")[0];
+  if (typeof raw === "number" && raw >= 19000101 && raw <= 21001231) {
+    const s = String(Math.floor(raw));
+    if (s.length === 8) { const d = new Date(s.slice(0,4)+"-"+s.slice(4,6)+"-"+s.slice(6,8)); if (!isNaN(d.getTime())) return d.toISOString().split("T")[0]; }
+  }
+  if (typeof raw === "number") { const d = new Date(Date.UTC(1899,11,30)+raw*86400000); return isNaN(d.getTime())?new Date().toISOString().split("T")[0]:d.toISOString().split("T")[0]; }
+  const str = String(raw).trim();
+  if (/^\d{8}$/.test(str)) { const d = new Date(str.slice(0,4)+"-"+str.slice(4,6)+"-"+str.slice(6,8)); if (!isNaN(d.getTime())) return d.toISOString().split("T")[0]; }
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? new Date().toISOString().split("T")[0] : d.toISOString().split("T")[0];
+}
+
+const PALETTE = ["#f97316","#3b82f6","#8b5cf6","#eab308","#ec4899","#10b981","#f43f5e","#06b6d4","#84cc16","#f59e0b","#a78bfa","#34d399","#fb923c","#60a5fa","#e879f9"];
+function catColor(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) { h = str.charCodeAt(i) + ((h << 5) - h); h |= 0; }
+  return PALETTE[Math.abs(h) % PALETTE.length];
+}
+
+function calcStats(txList) {
+  let income = 0, expenses = 0;
+  const byCat = {}, byIncomeCat = {};
+  txList.forEach(t => {
+    if (t.type === "income") {
+      income += t.amount;
+      if (!byIncomeCat[t.category]) byIncomeCat[t.category] = { total:0, subs:{} };
+      byIncomeCat[t.category].total += t.amount;
+      const sub = t.subcategory||"—";
+      byIncomeCat[t.category].subs[sub] = (byIncomeCat[t.category].subs[sub]||0) + t.amount;
+    }
+    if (t.type === "expense") {
+      expenses += Math.abs(t.amount);
+      if (!byCat[t.category]) byCat[t.category] = { total:0, subs:{} };
+      byCat[t.category].total += Math.abs(t.amount);
+      const sub = t.subcategory||"—";
+      byCat[t.category].subs[sub] = (byCat[t.category].subs[sub]||0) + Math.abs(t.amount);
+    }
+  });
+  return { income, expenses, balance:income-expenses, byCat, byIncomeCat };
+}
+
+function isSafePattern(pattern) {
+  if (!pattern || pattern.length > 200) return false;
+  if (/\(.*?[+*].*?\)[+*{]/.test(pattern)) return false;
+  try { new RegExp(pattern, "i"); return true; } catch(e) { return false; }
+}
+
+function generatePatternSuggestions(rawDesc) {
+  const desc = rawDesc.trim();
+  function esc(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+  const exact = esc(desc);
+  const medium = esc(desc.replace(/\s*#\d[\d\-]*.*$/, '').replace(/\s+\d{4,}.*$/, '').replace(/\s+[A-Z]{2}$/, '').trim());
+  const words = desc.trim().split(/\s+/);
+  const broadWords = [];
+  for (const w of words) {
+    if (/^[\d#]/.test(w)) break;
+    broadWords.push(esc(w));
+    if (broadWords.length >= 2) break;
+  }
+  const broad = broadWords.join(' ');
+  const seen = new Set(), out = [];
+  for (const [label, pat] of [['Broad', broad], ['Medium', medium], ['Exact', exact]]) {
+    if (pat && pat.length > 0 && !seen.has(pat)) { seen.add(pat); out.push({ label, pattern: pat }); }
+  }
+  return out;
+}
+
+// ── UI constants ──────────────────────────────────────────────────────────────
+// "auto" is a rule-level type only — transactions are always income/expense/notreported
+const TYPE_STYLE = {
+  expense:     { bg:"#f43f5e18", color:"#f43f5e" },
+  income:      { bg:"#10b98118", color:"#10b981" },
+  notreported: { bg:"#6b728018", color:"#9ca3af" },
+  auto:        { bg:"#3b82f618", color:"#3b82f6" },
+};
+const TYPE_LABEL = { expense:"Expense", income:"Income", notreported:"Not Reported", auto:"Auto (by sign)" };
+
+// Rule type options — "auto" is the default; explicit overrides still available
+const RULE_TYPES = [
+  { value:"auto",        label:"Auto",         hint:"income if +, expense if −" },
+  { value:"notreported", label:"Not Reported",  hint:"always excluded from totals" },
+  { value:"income",      label:"Force Income",  hint:"always income regardless of sign" },
+  { value:"expense",     label:"Force Expense", hint:"always expense regardless of sign" },
+];
+
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const STORAGE_KEY = "budget-tracker-v2", TAXONOMY_KEY = "budget-tracker-taxonomy", RULES_KEY = "budget-tracker-rules";
+const fmt = n => new Intl.NumberFormat("en-CA",{style:"currency",currency:"CAD"}).format(n||0);
+const SEED_BASE = 1_000_000;
+const SEED = [
+  { id:SEED_BASE+1, description:"Safeway",        amount:-112.4, category:"Groceries",    subcategory:"Groceries",    type:"expense", date:"2026-02-28" },
+  { id:SEED_BASE+2, description:"Netflix",        amount:-18.0,  category:"Entertainment",subcategory:"Movies",        type:"expense", date:"2026-02-25" },
+  { id:SEED_BASE+3, description:"Rogers",         amount:-85.0,  category:"Utilities",    subcategory:"Phone Bill",   type:"expense", date:"2026-02-24" },
+  { id:SEED_BASE+4, description:"Shaw Internet",  amount:-59.75, category:"Utilities",    subcategory:"Internet Bill",type:"expense", date:"2026-02-01" },
+  { id:SEED_BASE+5, description:"Whole Foods",    amount:-62.5,  category:"Groceries",    subcategory:"Groceries",    type:"expense", date:"2026-03-01" },
+];
+const BLANK      = { description:"", amount:"", typeFilter:"expense", category:"", subcategory:"", date:new Date().toISOString().split("T")[0], note:"" };
+const BLANK_TAX  = { category:"", subcategory:"", type:"expense", budget:0 };
+// Default rule type is now "auto"
+const BLANK_RULE = { pattern:"", category:"", subcategory:"", type:"auto" };
+
+// ── ConfirmModal ──────────────────────────────────────────────────────────────
+function ConfirmModal({ message, detail, confirmLabel="Confirm", danger=false, onConfirm, onCancel }) {
+  return (
+    <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)onCancel();}}>
+      <div className="modal-box" style={{background:"#181818",border:"1px solid #2e2e2e",borderRadius:16,width:"100%",maxWidth:420,padding:"28px 28px 24px",boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
+        <div style={{fontSize:14,color:"#ddd",marginBottom:detail?10:24,fontWeight:500,lineHeight:1.5}}>{message}</div>
+        {detail && <div style={{fontSize:12,color:"#555",marginBottom:24,lineHeight:1.7,borderLeft:"2px solid #2a2a2a",paddingLeft:12}}>{detail}</div>}
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+          <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+          <button className="btn btn-primary" style={danger?{background:"#f43f5e",color:"#fff"}:{}} onClick={onConfirm}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── RuleTypeSelector — shared across rule forms ───────────────────────────────
+function RuleTypeSelector({ value, onChange, size="normal" }) {
+  const isSmall = size === "small";
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:5}}>
+      {RULE_TYPES.map(rt => {
+        const active = value === rt.value;
+        const ts = TYPE_STYLE[rt.value] || TYPE_STYLE.auto;
+        return (
+          <label key={rt.value} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",padding:isSmall?"5px 8px":"7px 10px",borderRadius:7,border:"1px solid "+(active?ts.color+"55":"#1e1e1e"),background:active?ts.bg:"transparent",transition:"all 0.15s"}} onClick={()=>onChange(rt.value)}>
+            <div style={{width:12,height:12,borderRadius:"50%",border:"1px solid "+(active?ts.color:"#333"),background:active?ts.color:"transparent",flexShrink:0,transition:"all 0.15s"}}/>
+            <div style={{flex:1}}>
+              <span style={{fontSize:isSmall?11:12,color:active?ts.color:"#666",fontWeight:active?500:400}}>{rt.label}</span>
+              {!isSmall && <span style={{fontSize:10,color:"#333",marginLeft:8}}>{rt.hint}</span>}
+            </div>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── CreateRuleModal ───────────────────────────────────────────────────────────
+function CreateRuleModal({ tx, taxonomy, onSave, onCancel }) {
+  const expenseCats = useMemo(() => computeExpenseCats(taxonomy), [taxonomy]);
+  const incomeCats  = useMemo(() => computeIncomeCats(taxonomy),  [taxonomy]);
+  const suggestions = useMemo(() => generatePatternSuggestions(tx.description), [tx.description]);
+
+  const [patternIdx,    setPatternIdx]    = useState(0);
+  const [useCustom,     setUseCustom]     = useState(false);
+  const [customPattern, setCustomPattern] = useState("");
+  const [ruleType,      setRuleType]      = useState("auto");
+  const [category,      setCategory]      = useState(tx.category);
+  const [subcategory,   setSubcategory]   = useState(tx.subcategory);
+  const [patternError,  setPatternError]  = useState("");
+
+  const pattern  = useCustom ? customPattern : (suggestions[patternIdx]?.pattern || "");
+  // For category dropdowns we show all cats since type is dynamic for "auto"
+  const cats     = ruleType === "income" ? incomeCats : expenseCats;
+  const subcats  = category ? getSubcats(taxonomy, category, ruleType === "auto" ? "expense" : ruleType) : [];
+  const canSave  = pattern && category && subcategory;
+  const tsPreview = TYPE_STYLE[ruleType] || TYPE_STYLE.auto;
+
+  function handleCatChange(cat) {
+    setCategory(cat);
+    setSubcategory(getSubcats(taxonomy, cat, ruleType === "auto" ? "expense" : ruleType)[0] || "");
+  }
+
+  function handleSave() {
+    setPatternError("");
+    const p = pattern.trim();
+    if (!p) { setPatternError("A pattern is required."); return; }
+    if (!isSafePattern(p)) { setPatternError("Invalid or unsafe pattern. Check for syntax errors or nested quantifiers."); return; }
+    if (!category || !subcategory) return;
+    onSave({ pattern: p, category, subcategory, type: ruleType });
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)onCancel();}}>
+      <div className="modal-box" style={{background:"#181818",border:"1px solid #2e2e2e",borderRadius:16,width:"100%",maxWidth:540,boxShadow:"0 24px 64px rgba(0,0,0,0.7)",maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{padding:"18px 22px 14px",borderBottom:"1px solid #222",display:"flex",justifyContent:"space-between",alignItems:"flex-start",position:"sticky",top:0,background:"#181818",zIndex:1}}>
+          <div>
+            <div style={{fontSize:10,letterSpacing:"0.2em",color:"#444",textTransform:"uppercase",marginBottom:4}}>Create Match Rule</div>
+            <div style={{fontSize:12,color:"#555"}}>from: <span style={{color:"#888"}}>{tx.description}</span></div>
+          </div>
+          <button className="btn-danger" style={{fontSize:20,padding:"4px 10px"}} onClick={onCancel}>×</button>
+        </div>
+
+        <div style={{padding:"18px 22px",display:"grid",gap:18}}>
+          {/* Pattern */}
+          <div>
+            <div style={{fontSize:9,letterSpacing:"0.15em",color:"#444",textTransform:"uppercase",marginBottom:10}}>
+              Match Pattern
+              <span style={{color:"#2a2a2a",marginLeft:8,letterSpacing:"0.05em",textTransform:"none",fontSize:10}}>— how specifically should this rule match?</span>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {suggestions.map((s,i) => (
+                <div key={i} className={"pattern-option"+(!useCustom&&patternIdx===i?" selected":"")} onClick={()=>{setPatternIdx(i);setUseCustom(false);setPatternError("");}}>
+                  <div className={"radio-dot"+(!useCustom&&patternIdx===i?" selected":"")}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:9,color:"#555",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>{s.label}</div>
+                    <code style={{fontSize:12,color:"#8b5cf6",wordBreak:"break-all",display:"block"}}>{s.pattern}</code>
+                  </div>
+                </div>
+              ))}
+              <div className={"pattern-option"+(useCustom?" selected":"")} onClick={()=>{setUseCustom(true);setPatternError("");}}>
+                <div className={"radio-dot"+(useCustom?" selected":"")}/>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:9,color:"#555",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:6}}>Custom</div>
+                  <input className={"input-sm"+(patternError?" input-error":"")} placeholder="Enter custom regex pattern…" value={customPattern} maxLength={200} onClick={e=>e.stopPropagation()} onChange={e=>{setCustomPattern(e.target.value);setPatternError("");}} style={{fontFamily:"monospace",color:"#8b5cf6",width:"100%"}}/>
+                </div>
+              </div>
+              {patternError && <div style={{fontSize:11,color:"#f43f5e",padding:"0 4px"}}>{patternError}</div>}
+            </div>
+          </div>
+
+          {/* Rule Type */}
+          <div>
+            <div style={{fontSize:9,letterSpacing:"0.15em",color:"#444",textTransform:"uppercase",marginBottom:10}}>Classification</div>
+            <RuleTypeSelector value={ruleType} onChange={v=>{setRuleType(v);setCategory("");setSubcategory("");}}/>
+          </div>
+
+          {/* Category + Subcategory */}
+          <div className="grid-2">
+            <div>
+              <div style={{fontSize:9,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:6}}>Category</div>
+              <select className="input" value={category} onChange={e=>handleCatChange(e.target.value)}>
+                <option value="">— Select —</option>
+                {cats.map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:9,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:6}}>Subcategory</div>
+              <select className="input" value={subcategory} disabled={!category} onChange={e=>setSubcategory(e.target.value)}>
+                <option value="">— Select —</option>
+                {subcats.map(s=><option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Preview */}
+          {canSave && (
+            <div style={{padding:"10px 14px",background:"#0f0f0f",borderRadius:8,border:"1px solid #1e1e1e"}}>
+              <div style={{fontSize:9,color:"#333",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>Rule Preview</div>
+              <div style={{fontSize:11,color:"#555",lineHeight:2}}>
+                When description matches{" "}
+                <code style={{color:"#8b5cf6",background:"#1a1a1a",padding:"1px 6px",borderRadius:4}}>{pattern}</code>
+                {" → "}
+                <span style={{color:catColor(category)}}>{category}</span>
+                <span style={{color:"#333"}}> / </span>
+                <span style={{color:"#666"}}>{subcategory}</span>
+                <span style={{marginLeft:8}}><span className="tag" style={{background:tsPreview.bg,color:tsPreview.color}}>{TYPE_LABEL[ruleType]}</span></span>
+              </div>
+            </div>
+          )}
+
+          <div style={{display:"flex",gap:10}}>
+            <button className="btn btn-primary" style={{flex:1,padding:12,opacity:canSave?1:0.4,cursor:canSave?"pointer":"not-allowed"}} onClick={handleSave}>Save Rule</button>
+            <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── TxRow ─────────────────────────────────────────────────────────────────────
+function TxRow({ t, onRemove, onEdit, onCreateRule }) {
+  const ts = TYPE_STYLE[t.type] || TYPE_STYLE.notreported;
+  const amtColor = t.type==="income"?"#10b981":t.type==="notreported"?"#9ca3af":"#f43f5e";
+  const prefix   = t.type==="income"?"+":t.type==="notreported"?"±":"";
+  return (
+    <div className="tx-row" style={{cursor:"pointer"}} onClick={e=>{if(e.target.closest&&e.target.closest(".btn-danger,.btn-rule"))return;if(onEdit)onEdit(t);}}>
+      <div style={{width:7,height:7,borderRadius:"50%",background:catColor(t.category),flexShrink:0,marginTop:t.note?2:0}}/>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:13,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:"#ddd"}}>{t.description}</div>
+        <div style={{display:"flex",gap:6,marginTop:3,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{fontSize:10,color:"#444"}}>{t.date}</span>
+          <span className="tag" style={{background:catColor(t.category)+"18",color:catColor(t.category)}}>{t.category}</span>
+          {t.subcategory && <span className="tag" style={{background:"#1e1e1e",color:"#555"}}>{t.subcategory}</span>}
+          <span className="tag" style={{background:ts.bg,color:ts.color}}>{TYPE_LABEL[t.type]||t.type}</span>
+        </div>
+        {t.note && <div style={{fontSize:11,color:"#4a4a4a",marginTop:4,fontStyle:"italic",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>"{t.note}"</div>}
+      </div>
+      <div style={{fontWeight:500,fontSize:13,color:amtColor,whiteSpace:"nowrap",flexShrink:0}}>{prefix}{fmt(Math.abs(t.amount))}</div>
+      <button className="btn-rule" title="Create rule from this transaction" onClick={e=>{e.stopPropagation();if(onCreateRule)onCreateRule(t);}}>✦</button>
+      <button className="btn-danger" onClick={e=>{e.stopPropagation();onRemove(t.id);}}>×</button>
+    </div>
+  );
+}
+
+// ── PieChart ──────────────────────────────────────────────────────────────────
+function PieChart({ byCat, totalSpend }) {
+  const [hoveredIdx, setHoveredIdx] = useState(null);
+  const entries = Object.entries(byCat).sort((a,b)=>b[1].total-a[1].total);
+  if (!entries.length || totalSpend <= 0) return null;
+  const SIZE=220,CX=110,CY=110,R=88,INNER=54,GAP=0.018;
+  const slices=[];
+  let cum=-Math.PI/2;
+  entries.forEach(([cat,{total}])=>{
+    const frac=total/totalSpend,sweep=frac*2*Math.PI-GAP;
+    if(sweep<=0)return;
+    slices.push({cat,total,frac,startAngle:cum+GAP/2,sweep});
+    cum+=frac*2*Math.PI;
+  });
+  const polar=(a,r)=>({x:CX+r*Math.cos(a),y:CY+r*Math.sin(a)});
+  const hovered=hoveredIdx!==null?slices[hoveredIdx]:null;
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:24,flexWrap:"wrap",justifyContent:"center",marginBottom:20}}>
+      <div style={{flexShrink:0}}>
+        <svg width={SIZE} height={SIZE} style={{display:"block"}}>
+          {slices.map((s,i)=>{
+            const isH=hoveredIdx===i,eR=isH?R+6:R,eI=isH?INNER-3:INNER;
+            const p1=polar(s.startAngle,eR),p2=polar(s.startAngle+s.sweep,eR),p3=polar(s.startAngle+s.sweep,eI),p4=polar(s.startAngle,eI);
+            const lg=s.sweep>Math.PI?1:0;
+            const d=`M${p1.x} ${p1.y} A${eR} ${eR} 0 ${lg} 1 ${p2.x} ${p2.y} L${p3.x} ${p3.y} A${eI} ${eI} 0 ${lg} 0 ${p4.x} ${p4.y}Z`;
+            return <path key={s.cat} d={d} fill={catColor(s.cat)} opacity={hoveredIdx===null||isH?1:0.45} style={{cursor:"pointer",transition:"opacity 0.15s"}} onMouseEnter={()=>setHoveredIdx(i)} onMouseLeave={()=>setHoveredIdx(null)}/>;
+          })}
+          {hovered?(<>
+            <text x={CX} y={CY-8}  textAnchor="middle" fill="#e8e0d5" fontSize="13" fontWeight="600" fontFamily="DM Mono,monospace">{(hovered.frac*100).toFixed(1)+"%"}</text>
+            <text x={CX} y={CY+10} textAnchor="middle" fill="#777"    fontSize="9"  fontFamily="DM Mono,monospace">{hovered.cat.length>14?hovered.cat.slice(0,13)+"…":hovered.cat}</text>
+            <text x={CX} y={CY+26} textAnchor="middle" fill="#555"    fontSize="9"  fontFamily="DM Mono,monospace">{fmt(hovered.total)}</text>
+          </>):(<>
+            <text x={CX} y={CY-6}  textAnchor="middle" fill="#e8e0d5" fontSize="13" fontWeight="600" fontFamily="DM Mono,monospace">{fmt(totalSpend)}</text>
+            <text x={CX} y={CY+12} textAnchor="middle" fill="#555"    fontSize="9"  fontFamily="DM Mono,monospace">total spent</text>
+          </>)}
+        </svg>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:7,minWidth:160,maxWidth:220}}>
+        {slices.map((s,i)=>{
+          const isH=hoveredIdx===i;
+          return (
+            <div key={s.cat} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",opacity:hoveredIdx===null||isH?1:0.45,transition:"opacity 0.15s"}} onMouseEnter={()=>setHoveredIdx(i)} onMouseLeave={()=>setHoveredIdx(null)}>
+              <div style={{width:9,height:9,borderRadius:"50%",background:catColor(s.cat),flexShrink:0}}/>
+              <span style={{fontSize:11,color:isH?"#ddd":"#777",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.cat}</span>
+              <span style={{fontSize:10,color:isH?"#e8e0d5":"#444",fontWeight:isH?600:400,flexShrink:0}}>{(s.frac*100).toFixed(1)}%</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── BarChart ──────────────────────────────────────────────────────────────────
+function BarChart({ transactions, currentMonth, currentYear }) {
+  const [hoveredIdx, setHoveredIdx] = useState(null);
+  const months=[];
+  for(let i=11;i>=0;i--){let m=currentMonth-i,y=currentYear;while(m<0){m+=12;y--;}months.push({month:m,year:y});}
+  const data=months.map(mv=>{
+    let income=0,expense=0;
+    transactions.forEach(t=>{
+      const d=new Date(t.date+"T00:00:00");
+      if(d.getMonth()===mv.month&&d.getFullYear()===mv.year){
+        if(t.type==="income")income+=t.amount;
+        if(t.type==="expense")expense+=Math.abs(t.amount);
+      }
+    });
+    return{month:mv.month,year:mv.year,income,expense};
+  });
+  const maxVal=Math.max(...data.flatMap(d=>[d.income,d.expense]),1);
+  const W=660,H=160,PL=48,PB=28,PT=12,PR=8,cW=W-PL-PR,cH=H-PB-PT;
+  const bGW=cW/12,bW=Math.floor(bGW*0.32),gap=Math.floor(bGW*0.04);
+  const bH=v=>Math.max(2,(v/maxVal)*cH);
+  const bX=(i,w)=>PL+i*bGW+Math.floor((bGW-2*bW-gap)/2)+w*(bW+gap);
+  const yTicks=[0,0.25,0.5,0.75,1].map(f=>f*maxVal);
+  return (
+    <div style={{marginBottom:20,overflowX:"auto"}}>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:"block",fontFamily:"DM Mono,monospace"}}>
+        {yTicks.map((val,ti)=>{const yy=PT+cH-(val/maxVal)*cH;return(
+          <g key={ti}>
+            <line x1={PL} x2={W-PR} y1={yy} y2={yy} stroke="#1e1e1e" strokeWidth="1"/>
+            <text x={PL-4} y={yy+4} textAnchor="end" fill="#333" fontSize="8">{val>=1000?"$"+Math.round(val/1000)+"k":"$"+Math.round(val)}</text>
+          </g>
+        );})}
+        {data.map((d,i)=>{
+          const isH=hoveredIdx===i,iH=bH(d.income),iX=bX(i,0),iY=PT+cH-iH,eH=bH(d.expense),eX=bX(i,1),eY=PT+cH-eH;
+          const lX=PL+i*bGW+bGW/2,lY=H-PB+12,short=MONTHS[d.month].slice(0,3),isCur=d.month===currentMonth&&d.year===currentYear;
+          return(
+            <g key={i} onMouseEnter={()=>setHoveredIdx(i)} onMouseLeave={()=>setHoveredIdx(null)} style={{cursor:"default"}}>
+              {isH&&<rect x={PL+i*bGW} width={bGW} y={PT} height={cH} fill="#ffffff06" rx="2"/>}
+              {d.income>0&&<rect x={iX} width={bW} y={iY} height={iH} fill="#10b981" opacity={isH?1:0.7} rx="2"/>}
+              {d.expense>0&&<rect x={eX} width={bW} y={eY} height={eH} fill="#f43f5e" opacity={isH?1:0.7} rx="2"/>}
+              <text x={lX} y={lY} textAnchor="middle" fontSize="8" fill={isCur?"#e8e0d5":"#444"} fontWeight={isCur?"600":"400"}>{short}</text>
+              {isH&&(d.income>0||d.expense>0)&&(()=>{
+                const tipX=Math.min(lX+4,W-100);
+                return(<g>
+                  <rect x={tipX-2} y={PT-2} width={96} height={40} fill="#1e1e1e" stroke="#333" strokeWidth="0.5" rx="4"/>
+                  <text x={tipX+2} y={PT+10} fill="#888" fontSize="7">{short+" "+d.year}</text>
+                  {d.income>0&&<text x={tipX+2} y={PT+22} fill="#10b981" fontSize="8">{"In: "+fmt(d.income)}</text>}
+                  {d.expense>0&&<text x={tipX+2} y={PT+33} fill="#f43f5e" fontSize="8">{"Ex: "+fmt(d.expense)}</text>}
+                </g>);
+              })()}
+            </g>
+          );
+        })}
+        <line x1={PL} x2={W-PR} y1={PT+cH} y2={PT+cH} stroke="#252525" strokeWidth="1"/>
+      </svg>
+      <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:4}}>
+        <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:8,height:8,borderRadius:2,background:"#10b981"}}/><span style={{fontSize:10,color:"#555"}}>Income</span></div>
+        <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:8,height:8,borderRadius:2,background:"#f43f5e"}}/><span style={{fontSize:10,color:"#555"}}>Expenses</span></div>
+      </div>
+    </div>
+  );
+}
+
+// ── CatBreakdown ──────────────────────────────────────────────────────────────
+function CatBreakdown({ byCat, maxVal, taxonomy, totalSpend=0 }) {
+  const subBudget=(cat,sub)=>(taxonomy.find(t=>t.category===cat&&t.subcategory===sub)||{}).budget||0;
+  const catBudgetTotal=(cat,subs)=>Object.keys(subs).reduce((a,sub)=>a+subBudget(cat,sub),0);
+  const entries=Object.entries(byCat).sort((a,b)=>b[1].total-a[1].total);
+  if(!entries.length)return <div style={{textAlign:"center",color:"#333",fontSize:13,padding:"20px 0"}}>No expense data yet.</div>;
+  return(
+    <div>
+      {entries.map(([cat,data])=>{
+        const budget=catBudgetTotal(cat,data.subs),overCat=budget>0&&data.total>budget,barMax=Math.max(maxVal,budget);
+        const budgetUtil=budget>0?(data.total/budget*100):null;
+        return(
+          <div key={cat} style={{marginBottom:22}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{width:7,height:7,borderRadius:"50%",background:catColor(cat),flexShrink:0}}/>
+                <span style={{fontSize:13,fontWeight:500,color:"#ccc"}}>{cat}</span>
+                {budgetUtil!==null&&<span style={{fontSize:10,color:budgetUtil>100?"#f43f5e":budgetUtil>80?"#f97316":"#555",background:"#1e1e1e",borderRadius:100,padding:"1px 7px"}}>{budgetUtil.toFixed(0)}% of budget</span>}
+              </div>
+              <div style={{textAlign:"right"}}>
+                <span style={{fontSize:13,color:overCat?"#f43f5e":"#666"}}>{fmt(data.total)}</span>
+                {budget>0&&<span style={{fontSize:10,color:"#444",marginLeft:6}}>/ {fmt(budget)}</span>}
+              </div>
+            </div>
+            <div style={{background:"#1e1e1e",borderRadius:4,height:5,marginBottom:9,position:"relative"}}>
+              <div style={{width:(Math.min(data.total/barMax,1)*100)+"%",height:"100%",borderRadius:4,background:overCat?"#f43f5e":catColor(cat),transition:"width 0.5s ease"}}/>
+              {budget>0&&<div style={{position:"absolute",top:-2,bottom:-2,width:2,borderRadius:1,background:"#444",left:(Math.min(budget/barMax,1)*100)+"%"}}/>}
+            </div>
+            {Object.entries(data.subs).map(([sub,amt])=>{
+              const bud=subBudget(cat,sub),over=bud>0&&amt>bud,pct=bud>0?Math.min(amt/bud*100,100):0;
+              const barColor=over?"#f43f5e":pct>80?"#f97316":catColor(cat);
+              return(
+                <div key={sub} style={{padding:"5px 0 5px 16px",borderLeft:"1px solid "+catColor(cat)+"40",marginBottom:4}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
+                    <span style={{color:"#555"}}>{sub}</span>
+                    <div>
+                      <span style={{color:over?"#f43f5e":"#555"}}>{fmt(amt)}</span>
+                      {bud>0&&<span style={{color:"#383838",marginLeft:5}}>/ {fmt(bud)}</span>}
+                      {bud===0&&<span style={{color:"#2a2a2a",marginLeft:5,fontSize:10}}>no budget</span>}
+                    </div>
+                  </div>
+                  {bud>0&&<div style={{background:"#1a1a1a",borderRadius:3,height:3}}><div style={{width:pct+"%",height:"100%",borderRadius:3,background:barColor,transition:"width 0.5s ease"}}/></div>}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+function App() {
+  const now = new Date();
+  const [transactions, setTransactions]     = useState([]);
+  const [loaded, setLoaded]                 = useState(false);
+  const [form, setForm]                     = useState(BLANK);
+  const [amountError, setAmountError]       = useState("");
+  const [filterType, setFilterType]         = useState("all");
+  const [showForm, setShowForm]             = useState(false);
+  const [showImport, setShowImport]         = useState(false);
+  const [importStep, setImportStep]         = useState("type"); // "type" | "columns"
+  const [importAccountType, setImportAccountType] = useState("chequing");
+  const [importRawData, setImportRawData]   = useState(null);
+  const [importFirstRow, setImportFirstRow] = useState(0);
+  const [importDateCol, setImportDateCol]   = useState(null);
+  const [importAmtCol, setImportAmtCol]     = useState(null);
+  const [importDescCol, setImportDescCol]   = useState(null);
+  const [importStatus, setImportStatus]     = useState(null);
+  const [activeTab, setActiveTab]           = useState("transactions");
+  const [monthYear, setMonthYear]           = useState({ month:now.getMonth(), year:now.getFullYear() });
+  const [taxonomy, setTaxonomy]             = useState(DEFAULT_TAXONOMY);
+  const [descRules, setDescRules]           = useState(DEFAULT_DESC_RULES);
+  const [editSub, setEditSub]               = useState("categories");
+  const [newTax, setNewTax]                 = useState(BLANK_TAX);
+  const [newRule, setNewRule]               = useState(BLANK_RULE);
+  const [editingTaxIdx, setEditingTaxIdx]   = useState(null);
+  const [editingTaxVal, setEditingTaxVal]   = useState({});
+  const [editingRuleIdx, setEditingRuleIdx] = useState(null);
+  const [editingRuleVal, setEditingRuleVal] = useState({});
+  const [unmatchedQueue, setUnmatchedQueue] = useState([]);
+  const [searchQuery, setSearchQuery]       = useState("");
+
+  const [amountMin, setAmountMin]           = useState("");
+  const [amountMax, setAmountMax]           = useState("");
+  const [txPage, setTxPage]                 = useState(0);
+  const [editingTx, setEditingTx]           = useState(null);
+  const [editForm, setEditForm]             = useState({});
+  const [reviewIdx, setReviewIdx]           = useState(0);
+  const [reviewEdits, setReviewEdits]       = useState({});
+  const [reviewRemember, setReviewRemember] = useState(false);
+  const [reviewPatternIdx, setReviewPatternIdx] = useState(0);
+  const [confirmModal, setConfirmModal]     = useState(null);
+  const [undoTx, setUndoTx]                = useState(null);
+  const [createRuleTx, setCreateRuleTx]    = useState(null);
+  const [ruleToast, setRuleToast]           = useState(null);
+  const [dragRuleIdx, setDragRuleIdx]       = useState(null);
+  const [dragOverRuleIdx, setDragOverRuleIdx] = useState(null);
+  const [dragTaxIdx, setDragTaxIdx]         = useState(null);
+  const [dragOverTaxIdx, setDragOverTaxIdx] = useState(null);
+  const [collapsedCats, setCollapsedCats]   = useState(new Set());
+  const [dupWarning, setDupWarning]         = useState(false);
+  const [showDupScanner, setShowDupScanner] = useState(false);
+
+  const [isNewUser, setIsNewUser]           = useState(false);
+  const [onboardStep, setOnboardStep]       = useState("welcome"); // welcome | category | rule | transaction | done
+  const [obCat, setObCat]                   = useState({category:"",subcategory:"",type:"expense",budget:0});
+  const [obRule, setObRule]                 = useState({pattern:"",category:"",subcategory:"",type:"auto"});
+  const [obTx, setObTx]                     = useState({description:"",amount:"",typeFilter:"expense",category:"",subcategory:"",date:new Date().toISOString().split("T")[0],note:""});
+  const [obRuleError, setObRuleError]       = useState("");
+  const [obAmtError, setObAmtError]         = useState("");
+  const backupRef        = useRef(null);
+  const pendingBackupRef = useRef(null);
+  const undoTimerRef     = useRef(null);
+  const ruleToastTimer   = useRef(null);
+
+  function showConfirm(message, detail, confirmLabel, danger, onConfirm) {
+    setConfirmModal({ message, detail, confirmLabel:confirmLabel||"Confirm", danger:!!danger, onConfirm });
+  }
+  function scheduleUndo(tx) {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoTx(tx);
+    undoTimerRef.current = setTimeout(() => setUndoTx(null), 5000);
+  }
+  function handleUndo() {
+    if (!undoTx) return;
+    clearTimeout(undoTimerRef.current);
+    setTransactions(prev => [undoTx, ...prev]);
+    setUndoTx(null);
+  }
+  function showRuleToast(msg) {
+    if (ruleToastTimer.current) clearTimeout(ruleToastTimer.current);
+    setRuleToast(msg);
+    ruleToastTimer.current = setTimeout(() => setRuleToast(null), 4000);
+  }
+
+  // ── Onboarding helpers ────────────────────────────────────────────────────
+  function obCommitCategory(){
+    if(!obCat.category.trim()||!obCat.subcategory.trim())return;
+    // Only add if not already a duplicate
+    const exists=taxonomy.some(t=>t.category===obCat.category.trim()&&t.subcategory===obCat.subcategory.trim()&&t.type===obCat.type);
+    if(!exists)setTaxonomy(prev=>[...prev,{category:obCat.category.trim(),subcategory:obCat.subcategory.trim(),type:obCat.type,budget:parseFloat(obCat.budget)||0}]);
+    setObCat({category:"",subcategory:"",type:"expense",budget:0});
+    setOnboardStep("rule");
+  }
+  function obCommitRule(){
+    setObRuleError("");
+    const p=obRule.pattern.trim();
+    if(!p||!obRule.category||!obRule.subcategory){setObRuleError("Fill in all fields or skip this step.");return;}
+    if(!isSafePattern(p)){setObRuleError("Invalid regex pattern — check for syntax errors.");return;}
+    setDescRules(prev=>[...prev,{pattern:p,category:obRule.category,subcategory:obRule.subcategory,type:obRule.type}]);
+    setObRule({pattern:"",category:"",subcategory:"",type:"auto"});
+    setOnboardStep("transaction");
+  }
+  function obCommitTransaction(){
+    setObAmtError("");
+    const desc=obTx.description.trim();
+    const amt=parseFloat(obTx.amount);
+    if(!desc||isNaN(amt)||amt<=0){setObAmtError(!desc?"Enter a description.":isNaN(amt)||amt<=0?"Enter a valid positive amount.":"");return;}
+    if(!obTx.category||!obTx.subcategory){setObAmtError("Select a category and subcategory.");return;}
+    const sign=obTx.typeFilter==="income"?1:-1;
+    const tx={id:Date.now()+Math.random(),description:desc,amount:obTx.typeFilter==="notreported"?amt:sign*amt,category:obTx.category,subcategory:obTx.subcategory,type:obTx.typeFilter,date:obTx.date,note:obTx.note||""};
+    setTransactions(prev=>[tx,...prev]);
+    setOnboardStep("done");
+  }
+  function obFinish(){
+    setIsNewUser(false);
+    setActiveTab("transactions");
+  }
+
+  // ── Persist ───────────────────────────────────────────────────────────────
+  useEffect(()=>{
+    try{
+      const r=localStorage.getItem(STORAGE_KEY);const s=r?JSON.parse(r):null;
+      if(Array.isArray(s)&&s.length>0){setTransactions(s);}
+      else{setIsNewUser(true);setTransactions([]);}
+    }catch(e){setIsNewUser(true);setTransactions([]);}
+    try{const r=localStorage.getItem(TAXONOMY_KEY);if(r){const t=JSON.parse(r);if(Array.isArray(t)&&t.length>0)setTaxonomy(t);}}catch(e){}
+    try{const r=localStorage.getItem(RULES_KEY);if(r){const t=JSON.parse(r);if(Array.isArray(t)&&t.length>0)setDescRules(t);}}catch(e){}
+    setLoaded(true);
+  },[]);
+  useEffect(()=>{if(!loaded)return;try{localStorage.setItem(STORAGE_KEY,JSON.stringify(transactions));}catch(e){}},[transactions,loaded]);
+  useEffect(()=>{if(!loaded)return;try{localStorage.setItem(TAXONOMY_KEY,JSON.stringify(taxonomy));}catch(e){}},[taxonomy,loaded]);
+  useEffect(()=>{if(!loaded)return;try{localStorage.setItem(RULES_KEY,JSON.stringify(descRules));}catch(e){}},[descRules,loaded]);
+
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const expenseCats = useMemo(()=>computeExpenseCats(taxonomy),[taxonomy]);
+  const incomeCats  = useMemo(()=>computeIncomeCats(taxonomy), [taxonomy]);
+  const allCats     = useMemo(()=>{const seen={},out=[];taxonomy.forEach(t=>{if(!seen[t.category]){seen[t.category]=1;out.push(t.category);}});return out;},[taxonomy]);
+  const ruleCats        = newRule.type==="income" ? incomeCats : expenseCats;
+  const editingRuleCats = editingRuleVal.type==="income" ? incomeCats : expenseCats;
+  const availableCats    = form.typeFilter==="income"?incomeCats:expenseCats;
+  const availableSubcats = form.category?getSubcats(taxonomy,form.category,form.typeFilter):[];
+  const editingRuleSubcats = useMemo(()=>{
+    if(!editingRuleVal.category)return[];
+    const tf = editingRuleVal.type==="auto"?"expense":editingRuleVal.type;
+    const seen={},out=[];
+    taxonomy.forEach(t=>{if(t.category===editingRuleVal.category&&!seen[t.subcategory]){const m=tf==="notreported"?t.type==="notreported":(t.type===tf||t.type==="notreported");if(m){seen[t.subcategory]=1;out.push(t.subcategory);}}});
+    return out;
+  },[taxonomy,editingRuleVal.category,editingRuleVal.type]);
+  const editingTaxSubcats  = useMemo(()=>{if(!editingTaxVal.category)return[];const seen={},out=[];taxonomy.forEach(t=>{if(t.category===editingTaxVal.category&&!seen[t.subcategory]){seen[t.subcategory]=1;out.push(t.subcategory);}});return out;},[taxonomy,editingTaxVal.category]);
+  const ruleSubcats = useMemo(()=>{
+    if(!newRule.category)return[];
+    const tf = newRule.type==="auto"?"expense":newRule.type;
+    const seen={},out=[];
+    taxonomy.forEach(t=>{if(t.category===newRule.category&&!seen[t.subcategory]){const m=tf==="notreported"?t.type==="notreported":(t.type===tf||t.type==="notreported");if(m){seen[t.subcategory]=1;out.push(t.subcategory);}}});
+    return out;
+  },[taxonomy,newRule.category,newRule.type]);
+  const taxSubcats  = useMemo(()=>{if(!newTax.category)return[];const seen={},out=[];taxonomy.forEach(t=>{if(t.category===newTax.category&&!seen[t.subcategory]){seen[t.subcategory]=1;out.push(t.subcategory);}});return out;},[taxonomy,newTax.category]);
+  const monthlyBudget = useMemo(()=>taxonomy.filter(t=>t.type==="expense").reduce((s,t)=>s+(t.budget||0),0),[taxonomy]);
+
+  // ── Transaction helpers ───────────────────────────────────────────────────
+  function handleCatChange(cat){const subs=getSubcats(taxonomy,cat,form.typeFilter);setForm(f=>({...f,category:cat,subcategory:subs[0]||""}));}
+  function handleTFChange(tf){setForm(f=>({...f,typeFilter:tf,category:"",subcategory:""}));}
+  function addTransaction(){
+    if(!form.description||!form.amount||!form.category||!form.subcategory)return;
+    const amt=parseFloat(form.amount);
+    if(isNaN(amt)||amt<=0){setAmountError("Enter a valid positive amount.");return;}
+    if(amt>999999){setAmountError("Amount seems unusually large (max $999,999).");return;}
+    setAmountError("");
+    // Duplicate check — same description + amount + date already exists
+    const isDup=transactions.some(t=>t.description.toLowerCase()===form.description.toLowerCase()&&Math.abs(t.amount)===amt&&t.date===form.date);
+    if(isDup&&!dupWarning){setDupWarning(true);return;}
+    setDupWarning(false);
+    const tax=getTaxonomyEntry(taxonomy,form.category,form.subcategory);
+    const rt=tax.type||form.typeFilter,sign=rt==="income"?1:-1;
+    setTransactions(prev=>[{id:Date.now(),description:form.description,amount:sign*amt,category:form.category,subcategory:form.subcategory,type:rt,date:form.date,note:form.note||""},...prev]);
+    setForm(BLANK);setShowForm(false);
+  }
+  function removeTx(id){
+    const tx=transactions.find(t=>t.id===id);
+    setTransactions(prev=>prev.filter(t=>t.id!==id));
+    if(tx)scheduleUndo(tx);
+  }
+
+  // ── Edit Tx modal ─────────────────────────────────────────────────────────
+  function openEditTx(t){setEditingTx(t);setEditForm({description:t.description,amount:String(Math.abs(t.amount)),typeFilter:t.type==="notreported"?"notreported":t.type,category:t.category,subcategory:t.subcategory,date:t.date,note:t.note||""});}
+  function closeEditTx(){setEditingTx(null);setEditForm({});}
+  function handleEditTFChange(tf){setEditForm(f=>({...f,typeFilter:tf,category:"",subcategory:""}));}
+  function handleEditCatChange(cat){const subs=cat?getSubcats(taxonomy,cat,editForm.typeFilter):[];setEditForm(f=>({...f,category:cat,subcategory:subs[0]||""}));}
+  function commitEditTx(){
+    if(!editForm.description||!editForm.amount||!editForm.category||!editForm.subcategory)return;
+    const amt=parseFloat(editForm.amount);if(isNaN(amt)||amt<=0)return;
+    const tax=getTaxonomyEntry(taxonomy,editForm.category,editForm.subcategory);
+    const rt=tax.type||editForm.typeFilter,sign=rt==="income"?1:rt==="notreported"?1:-1;
+    setTransactions(prev=>prev.map(t=>t.id===editingTx.id?{...t,description:editForm.description,amount:sign*amt,type:rt,category:editForm.category,subcategory:editForm.subcategory,date:editForm.date,note:editForm.note||""}:t));
+    closeEditTx();
+  }
+  function deleteEditTx(){showConfirm("Delete this transaction?",`"${editingTx.description}" on ${editingTx.date} for ${fmt(Math.abs(editingTx.amount))}`,"Delete",true,()=>{removeTx(editingTx.id);closeEditTx();});}
+
+  // ── Create rule from transaction ──────────────────────────────────────────
+  function openCreateRule(t){setCreateRuleTx(t);}
+  function saveCreatedRule(rule){setDescRules(prev=>[...prev,rule]);setCreateRuleTx(null);showRuleToast(`✦ Rule saved: "${rule.pattern}" → ${rule.category}`);}
+
+  // ── Taxonomy/Rules editing ────────────────────────────────────────────────
+  function startEditTax(idx){setEditingTaxIdx(idx);setEditingTaxVal({...taxonomy[idx]});}
+  function commitEditTax(){if(editingTaxIdx===null)return;setTaxonomy(prev=>prev.map((t,i)=>i===editingTaxIdx?{...editingTaxVal,budget:parseFloat(editingTaxVal.budget)||0}:t));setEditingTaxIdx(null);setEditingTaxVal({});}
+  function startEditRule(idx){setEditingRuleIdx(idx);setEditingRuleVal({...descRules[idx]});}
+  function commitEditRule(){
+    if(editingRuleIdx===null)return;
+    if(!isSafePattern(editingRuleVal.pattern)){showConfirm("Invalid or unsafe pattern","The regex pattern is invalid or contains nested quantifiers.","OK",false,()=>{});return;}
+    setDescRules(prev=>prev.map((r,i)=>i===editingRuleIdx?{...editingRuleVal}:r));
+    setEditingRuleIdx(null);setEditingRuleVal({});
+  }
+  function addTaxEntry(){if(!newTax.category.trim()||!newTax.subcategory.trim())return;setTaxonomy(prev=>[...prev,{category:newTax.category.trim(),subcategory:newTax.subcategory.trim(),type:newTax.type,budget:parseFloat(newTax.budget)||0}]);setNewTax(BLANK_TAX);}
+  function removeTaxEntry(idx){showConfirm("Remove this category entry?",`${taxonomy[idx].category} → ${taxonomy[idx].subcategory}`,"Remove",true,()=>setTaxonomy(prev=>prev.filter((_,i)=>i!==idx)));}
+  function removeCategoryGroup(cat){
+    if(cat==="Not Assigned")return;
+    const affectedCount=transactions.filter(t=>t.category===cat).length;
+    const detail=`This will remove all ${taxonomy.filter(t=>t.category===cat).length} subcategor${taxonomy.filter(t=>t.category===cat).length===1?"y":"ies"} under "${cat}".`
+      +(affectedCount>0?` ${affectedCount} transaction${affectedCount!==1?"s":""} will be moved to "Not Assigned".`:" No transactions are currently using this category.");
+    showConfirm(`Remove category "${cat}"?`,detail,"Remove Category",true,()=>{
+      setTaxonomy(prev=>prev.filter(t=>t.category!==cat));
+      if(affectedCount>0){
+        setTransactions(prev=>prev.map(t=>t.category===cat?{...t,category:"Not Assigned",subcategory:"Not Assigned"}:t));
+      }
+    });
+  }
+  function addRuleEntry(){
+    if(!newRule.pattern.trim()||!newRule.category||!newRule.subcategory)return;
+    if(!isSafePattern(newRule.pattern.trim())){showConfirm("Invalid pattern","The regex pattern is invalid or contains nested quantifiers.","OK",false,()=>{});return;}
+    setDescRules(prev=>[...prev,{pattern:newRule.pattern.trim(),category:newRule.category,subcategory:newRule.subcategory,type:newRule.type}]);
+    setNewRule(BLANK_RULE);
+  }
+  function removeRuleEntry(idx){showConfirm("Remove this rule?",descRules[idx].pattern,"Remove",true,()=>setDescRules(prev=>prev.filter((_,i)=>i!==idx)));}
+  function resetTaxonomy(){showConfirm("Reset categories to defaults?","All custom categories and budget amounts will be replaced. This cannot be undone.","Reset",true,()=>setTaxonomy(DEFAULT_TAXONOMY));}
+  function resetRules(){showConfirm("Reset match rules to defaults?","All custom description rules will be replaced. This cannot be undone.","Reset",true,()=>setDescRules(DEFAULT_DESC_RULES));}
+  function reRunRules(){
+    if(descRules.length===0){showConfirm("No rules to apply","Add some description rules first, then re-run them against your transactions.","OK",false,()=>{});return;}
+    const eligible=transactions.filter(t=>t.category==="Not Assigned"||t.subcategory==="Not Assigned");
+    if(eligible.length===0){showConfirm("Nothing to update","All transactions already have a category assigned.","OK",false,()=>{});return;}
+    const updated=[];
+    const newTx=transactions.map(t=>{
+      if(t.category!=="Not Assigned"&&t.subcategory!=="Not Assigned")return t;
+      const m=matchDesc(descRules,t.description,t.amount);
+      if(!m.matched)return t;
+      const fA=m.type==="income"?Math.abs(t.amount):m.type==="expense"?-Math.abs(t.amount):t.amount;
+      updated.push(t.description);
+      return{...t,category:m.category,subcategory:m.subcategory,type:m.type,amount:fA};
+    });
+    showConfirm(
+      `Re-run rules on ${eligible.length} unassigned transaction${eligible.length!==1?"s":""}?`,
+      `${descRules.length} rule${descRules.length!==1?"s":""} will be tested in order against every "Not Assigned" transaction. Matched transactions will be updated automatically.`,
+      "Re-run Rules",false,
+      ()=>{
+        setTransactions(newTx);
+        const matched=updated.length;
+        setImportStatus({count:matched,errors:0,dupes:0,fileType:"rerun",unmatched:eligible.length-matched});
+        setTimeout(()=>setImportStatus(null),5000);
+      }
+    );
+  }
+  function dropRule(toIdx) {
+    if (dragRuleIdx === null || dragRuleIdx === toIdx) { setDragRuleIdx(null); setDragOverRuleIdx(null); return; }
+    const next = [...descRules];
+    const [moved] = next.splice(dragRuleIdx, 1);
+    next.splice(toIdx, 0, moved);
+    setDescRules(next);
+    setDragRuleIdx(null);
+    setDragOverRuleIdx(null);
+  }
+  function dropTax(toIdx) {
+    if (dragTaxIdx === null || dragTaxIdx === toIdx) { setDragTaxIdx(null); setDragOverTaxIdx(null); return; }
+    const next = [...taxonomy];
+    const [moved] = next.splice(dragTaxIdx, 1);
+    next.splice(toIdx, 0, moved);
+    setTaxonomy(next);
+    setDragTaxIdx(null);
+    setDragOverTaxIdx(null);
+  }
+
+  // ── Stats ─────────────────────────────────────────────────────────────────
+  function txInMonth(t,m,y){const d=new Date(t.date+"T00:00:00");return d.getMonth()===m&&d.getFullYear()===y;}
+  const monthlyTx    = useMemo(()=>transactions.filter(t=>txInMonth(t,monthYear.month,monthYear.year)),[transactions,monthYear]);
+  const allStats     = useMemo(()=>calcStats(transactions),[transactions]);
+  const monthlyStats = useMemo(()=>calcStats(monthlyTx),[monthlyTx]);
+  const stats        = activeTab==="monthly"?monthlyStats:allStats;
+  const maxCatVal    = useMemo(()=>Math.max(...Object.values(stats.byCat).map(c=>c.total),1),[stats]);
+  const filteredTx   = useMemo(()=>{
+    const q=searchQuery.trim().toLowerCase();
+    return transactions.filter(t=>{
+      if(filterType!=="all"&&t.type!==filterType)return false;
+      if(q&&!(t.description+" "+t.category+" "+t.subcategory+" "+(t.note||"")).toLowerCase().includes(q))return false;
+      const abs=Math.abs(t.amount);
+      if(amountMin!==""&&abs<parseFloat(amountMin))return false;
+      if(amountMax!==""&&abs>parseFloat(amountMax))return false;
+      return true;
+    }).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  },[transactions,filterType,searchQuery,amountMin,amountMax]);
+  const TX_PAGE_SIZE = 20;
+  const txPageCount  = Math.max(1, Math.ceil(filteredTx.length / TX_PAGE_SIZE));
+  const pagedTx      = filteredTx.slice(txPage * TX_PAGE_SIZE, (txPage + 1) * TX_PAGE_SIZE);
+  function clearFilters(){setSearchQuery("");setAmountMin("");setAmountMax("");setTxPage(0);}
+  const hasFilters=!!(searchQuery||amountMin||amountMax);
+  function shiftMonth(dir){setMonthYear(mv=>{let m=mv.month+dir,y=mv.year;if(m<0){m=11;y--;}if(m>11){m=0;y++;}return{month:m,year:y};});}
+  const availableYears=useMemo(()=>{const yrs={};transactions.forEach(t=>{yrs[new Date(t.date+"T00:00:00").getFullYear()]=1;});yrs[now.getFullYear()]=1;return Object.keys(yrs).map(Number).sort((a,b)=>b-a);},[transactions]);
+  const dupGroups=useMemo(()=>{const map={};transactions.forEach(t=>{const key=`${t.date}||${Math.abs(t.amount).toFixed(2)}||${t.description.toLowerCase().trim()}`;if(!map[key])map[key]=[];map[key].push(t);});return Object.values(map).filter(g=>g.length>1);},[transactions]);
+
+  // ── CSV Export ────────────────────────────────────────────────────────────
+  function handleCSVExport(){
+    const header=["Date","Description","Amount","Type","Category","Subcategory","Note"];
+    const rows=transactions.map(t=>[t.date,`"${(t.description||"").replace(/"/g,'""')}"`,t.amount,t.type,t.category,t.subcategory,`"${(t.note||"").replace(/"/g,'""')}"`]);
+    const csv=[header,...rows].map(r=>r.join(",")).join("\n");
+    const blob=new Blob([csv],{type:"text/csv"});const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download=`transactions-${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(url);
+  }
+
+  // ── Backup ────────────────────────────────────────────────────────────────
+  function handleBackupExport(){
+    const b={version:1,exportedAt:new Date().toISOString(),transactions,taxonomy,descRules};
+    const blob=new Blob([JSON.stringify(b,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download=`budget-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);
+  }
+  function handleBackupImport(e){
+    const file=e.target.files[0];if(!file)return;e.target.value="";
+    const reader=new FileReader();
+    reader.onload=evt=>{
+      try{
+        const b=JSON.parse(evt.target.result);
+        if(!b||b.version!==1){showConfirm("Invalid backup file","This file doesn't appear to be a valid Budget Tracker backup.","OK",false,()=>{});return;}
+        const txN=(b.transactions||[]).length,taxN=(b.taxonomy||[]).length,rN=(b.descRules||[]).length;
+        pendingBackupRef.current=b;
+        showConfirm("Restore this backup?",`This will permanently overwrite all current data with ${txN} transaction${txN!==1?"s":""}, ${taxN} categor${taxN!==1?"ies":"y"}, and ${rN} rule${rN!==1?"s":""}. This cannot be undone.`,"Restore Backup",true,()=>{
+          const bk=pendingBackupRef.current;
+          if(Array.isArray(bk.transactions)&&bk.transactions.length>0)setTransactions(bk.transactions);
+          if(Array.isArray(bk.taxonomy)&&bk.taxonomy.length>0)setTaxonomy(bk.taxonomy);
+          if(Array.isArray(bk.descRules)&&bk.descRules.length>0)setDescRules(bk.descRules);
+          pendingBackupRef.current=null;
+        });
+      }catch(err){showConfirm("Could not read file","Make sure it is a valid JSON backup exported from this app.","OK",false,()=>{});}
+    };
+    reader.readAsText(file);
+  }
+
+  // ── File import ───────────────────────────────────────────────────────────
+  function resetImport(){
+    setShowImport(false);setImportStep("type");setImportRawData(null);
+    setImportFirstRow(0);setImportDateCol(null);setImportAmtCol(null);setImportDescCol(null);
+  }
+
+  function handleFileLoad(e){
+    const file=e.target.files[0];if(!file)return;e.target.value="";
+    const reader=new FileReader();
+    reader.onload=evt=>{
+      try{
+        const data=new Uint8Array(evt.target.result);
+        const wb=XLSX.read(data,{type:"array",cellDates:true});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const raw=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+
+        // ── Detect header row and first data row ──────────────────────────
+        // Header row = first row with ≥3 non-empty cells
+        // Data starts on the row immediately after the header row
+        const nonEmpty=r=>r.filter(c=>String(c||"").trim()!=="").length;
+        let headerRowIdx=0;
+        for(let i=0;i<Math.min(raw.length,30);i++){
+          if(nonEmpty(raw[i])>=3){headerRowIdx=i;break;}
+        }
+        let firstRow=headerRowIdx+1;
+        // Guard: if nothing useful follows, fall back to treating header row as data row 0
+        if(firstRow>=raw.length)firstRow=headerRowIdx;
+
+        // ── Step 1: Header-name detection (highest priority) ──────────────
+        const hRow=raw[headerRowIdx];
+        let hDateCol=null,hAmtCol=null,hDescCol=null;
+        hRow.forEach((h,ci)=>{
+          const v=String(h||"").toLowerCase().trim();
+          if(hDateCol===null&&/\bdate\b/.test(v))hDateCol=ci;
+          if(hAmtCol===null&&/\bamount\b|\bdebit\b|\bcredit\b|\btransaction amount\b/.test(v))hAmtCol=ci;
+          if(hDescCol===null&&/\bdescription\b|\bdesc\b|\bpayee\b|\bmemo\b|\bnarrative\b/.test(v))hDescCol=ci;
+        });
+
+        // ── Step 2: Content-based scoring — only for fields not found by headers ──
+        const DATE_PATTERNS=[
+          /^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}$/,          // YYYY-MM-DD  YYYY/MM/DD
+          /^\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}$/,         // MM/DD/YYYY  DD/MM/YY
+          /^\d{1,2}[-\s]\w{3}[-\s]\d{2,4}$/,           // 01-Jan-2024
+          /^\w{3,9}\s+\d{1,2},?\s+\d{4}$/,             // January 1, 2024
+        ];
+        const EXCEL_DATE_MIN=25569; // 1970-01-01 as Excel serial
+        const EXCEL_DATE_MAX=55000; // ~2050-01-01
+
+        function isDateLike(v){
+          if(v instanceof Date)return !isNaN(v.getTime());
+          const s=String(v||"").trim();
+          if(!s)return false;
+          if(DATE_PATTERNS.some(p=>p.test(s)))return true;
+          if(/\d{4}/.test(s)&&!isNaN(Date.parse(s)))return true;
+          const n=Number(s);
+          if(!isNaN(n)&&Number.isInteger(n)&&n>=EXCEL_DATE_MIN&&n<=EXCEL_DATE_MAX)return true;
+          return false;
+        }
+
+        function isNumberLike(v){
+          if(v instanceof Date)return false;
+          const s=String(v||"").trim().replace(/[$,\s]/g,"");
+          if(!s)return false;
+          return /^-?\d+(\.\d+)?$/.test(s);
+        }
+
+        const dataRows=raw.slice(firstRow);
+        const sampleRows=dataRows.slice(0,Math.min(dataRows.length,30));
+        const colCount=Math.max(...raw.map(r=>r.length),0);
+
+        // Only run content scoring for fields the header scan didn't resolve
+        let bestDateCol=hDateCol,bestAmtCol=hAmtCol,bestDescCol=hDescCol;
+
+        if(bestDateCol===null||bestAmtCol===null){
+          const dateScores=Array(colCount).fill(0);
+          const numScores=Array(colCount).fill(0);
+          const filledCounts=Array(colCount).fill(0);
+
+          sampleRows.forEach(row=>{
+            for(let ci=0;ci<colCount;ci++){
+              const v=row[ci];
+              if(String(v||"").trim()==="")continue;
+              filledCounts[ci]++;
+              if(isDateLike(v))dateScores[ci]++;
+              if(isNumberLike(v))numScores[ci]++;
+            }
+          });
+
+          const dateRatio=ci=>filledCounts[ci]>0?dateScores[ci]/filledCounts[ci]:0;
+          const numRatio =ci=>filledCounts[ci]>0?numScores[ci]/filledCounts[ci]:0;
+
+          if(bestDateCol===null){
+            let best=0.6;
+            for(let ci=0;ci<colCount;ci++){
+              const s=dateRatio(ci);if(s>best){best=s;bestDateCol=ci;}
+            }
+          }
+
+          if(bestAmtCol===null){
+            let best=0.7;
+            for(let ci=0;ci<colCount;ci++){
+              if(ci===bestDateCol)continue;
+              const s=numRatio(ci);if(s>best){best=s;bestAmtCol=ci;}
+            }
+          }
+        }
+
+        // Description fallback: longest average text column that isn't date or amount
+        if(bestDescCol===null){
+          let maxAvgLen=0;
+          for(let ci=0;ci<colCount;ci++){
+            if(ci===bestDateCol||ci===bestAmtCol)continue;
+            const avgLen=sampleRows.reduce((s,row)=>s+String(row[ci]||"").length,0)/Math.max(sampleRows.length,1);
+            if(avgLen>maxAvgLen){maxAvgLen=avgLen;bestDescCol=ci;}
+          }
+        }
+
+        setImportRawData(raw);
+        setImportFirstRow(firstRow);
+        setImportDateCol(bestDateCol);
+        setImportAmtCol(bestAmtCol);
+        setImportDescCol(bestDescCol);
+        setImportStep("columns");
+      }catch(err){setImportStatus({count:0,errors:-1,fileType:null});setTimeout(()=>setImportStatus(null),4000);}
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function commitImport(){
+    if(importDateCol===null||importAmtCol===null||importDescCol===null||!importRawData)return;
+    const cS=v=>String(v||"").trim();
+    const pA=v=>parseFloat(String(v||"").replace(/[$,\s]/g,""));
+    const dataRows=importRawData.slice(importFirstRow);
+    const imp=[],unmatched=[];let err=0,dup=0;
+    dataRows.forEach(row=>{
+      const desc=cS(row[importDescCol]);
+      let amt=pA(row[importAmtCol]);
+      const date=parseDate(row[importDateCol]);
+      if(!desc||isNaN(amt)||amt===0){if(desc||(!isNaN(amt)&&amt!==0))err++;return;}
+      // Credit card: positive charges are expenses, so negate
+      if(importAccountType==="credit")amt=-Math.abs(amt);
+      const m=matchDesc(descRules,desc,amt);
+      const fA=m.type==="income"?Math.abs(amt):m.type==="expense"?-Math.abs(amt):amt;
+      if(transactions.concat(imp).some(t=>t.date===date&&Math.abs(t.amount)===Math.abs(fA)&&t.description===desc)){dup++;return;}
+      const tx={id:Date.now()+Math.random(),description:desc,amount:fA,category:m.category,subcategory:m.subcategory,type:m.type,date,source:importAccountType};
+      if(!m.matched)unmatched.push(tx);else imp.push(tx);
+    });
+    if(imp.length>0)setTransactions(prev=>imp.concat(prev));
+    if(unmatched.length>0)setUnmatchedQueue(unmatched);
+    setImportStatus({count:imp.length,errors:err,dupes:dup,fileType:importAccountType,unmatched:unmatched.length});
+    setTimeout(()=>setImportStatus(null),6000);
+    resetImport();
+  }
+
+  // ── Unmatched review ──────────────────────────────────────────────────────
+  function reviewEdit(item){return reviewEdits[item.id]||{typeFilter:item.type==="notreported"?"notreported":item.type,category:item.category,subcategory:item.subcategory};}
+  function setReviewEdit(item,patch){setReviewEdits(prev=>{const cur=reviewEdit(item);return{...prev,[item.id]:{...cur,...patch}};});}
+  function commitReviewItem(item){
+    const ed=reviewEdit(item);if(!ed.category||!ed.subcategory)return;
+    const tax=getTaxonomyEntry(taxonomy,ed.category,ed.subcategory);
+    const rt=tax.type||ed.typeFilter,sign=rt==="income"?1:-1;
+    const fA=rt==="notreported"?item.amount:sign*Math.abs(item.amount);
+    const saved={...item,category:ed.category,subcategory:ed.subcategory,type:rt,amount:fA};
+    delete saved.source;
+    setTransactions(prev=>[saved,...prev]);
+    // "Remember" always saves as "auto" — sign will determine type on future imports
+    if(reviewRemember){
+      const sugs=generatePatternSuggestions(item.description);
+      const chosen=sugs[reviewPatternIdx]?.pattern;
+      if(chosen&&isSafePattern(chosen)){
+        setDescRules(prev=>[...prev,{pattern:chosen,category:ed.category,subcategory:ed.subcategory,type:"auto"}]);
+        showRuleToast(`✦ Rule saved: "${chosen}" → ${ed.category}`);
+      }
+    }
+    advanceReview(item.id);
+  }
+  function skipReviewItem(item){advanceReview(item.id);}
+  function advanceReview(doneId){
+    setUnmatchedQueue(prev=>prev.filter(x=>x.id!==doneId));
+    setReviewIdx(0);setReviewEdits(prev=>{const n={...prev};delete n[doneId];return n;});
+    setReviewRemember(false);setReviewPatternIdx(0);
+  }
+  function dismissReviewQueue(){setUnmatchedQueue([]);setReviewEdits({});setReviewIdx(0);setReviewRemember(false);setReviewPatternIdx(0);}
+
+  if(!loaded)return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:"#555",fontSize:13,letterSpacing:"0.15em"}}>Loading your data…</div>;
+
+  const monthLabel  = MONTHS[monthYear.month].slice(0,3);
+  const statsLabels = activeTab==="monthly"?[monthLabel+" Income",monthLabel+" Expenses",monthLabel+" Balance"]:["Total Income","Total Expenses","Net Balance"];
+
+  return (
+    <div style={{minHeight:"100vh",padding:"32px 16px"}}>
+      <div style={{maxWidth:720,margin:"0 auto"}}>
+
+        {/* Header */}
+        <div style={{marginBottom:28,display:"flex",justifyContent:"space-between",alignItems:"flex-end",flexWrap:"wrap",gap:12}}>
+          <div>
+            <div style={{fontSize:10,letterSpacing:"0.22em",color:"#444",marginBottom:4,textTransform:"uppercase"}}>Personal Finance</div>
+            <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:"clamp(26px,5vw,40px)",fontWeight:900,lineHeight:1,color:"#e8e0d5"}}>Budget<br/><span style={{color:"#3a3a3a"}}>Tracker.</span></h1>
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button className="btn btn-secondary" onClick={()=>{resetImport();setShowImport(v=>!v);setShowForm(false);}}>{showImport?"✕ Cancel":"↑ Import"}</button>
+            <button className="btn btn-primary"   onClick={()=>{setShowForm(v=>!v);setShowImport(false);resetImport();setAmountError("");}}>{showForm?"✕ Cancel":"+ Add"}</button>
+          </div>
+        </div>
+
+        {/* Import panel */}
+        {showImport&&(
+          <div className="card fade-in" style={{marginBottom:20}}>
+
+            {/* ── Step 1: Account type + file pick ── */}
+            {importStep==="type"&&(
+              <div style={{padding:20}}>
+                <div className="sl">Import Bank Statement</div>
+                <div style={{fontSize:12,color:"#555",marginBottom:16,lineHeight:1.7}}>Select your account type, then upload your statement file.</div>
+
+                {/* Account type chips */}
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:9,color:"#444",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8}}>Account Type</div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    {[
+                      {key:"chequing", label:"Chequing",    hint:"Debits are expenses, credits are income"},
+                      {key:"savings",  label:"Savings",     hint:"Same sign convention as chequing"},
+                      {key:"credit",   label:"Credit Card", hint:"All charges treated as expenses"},
+                    ].map(({key,label,hint})=>(
+                      <button key={key} onClick={()=>setImportAccountType(key)}
+                        style={{display:"flex",flexDirection:"column",alignItems:"flex-start",gap:3,padding:"10px 14px",borderRadius:9,border:"1px solid "+(importAccountType===key?"#555":"#242424"),background:importAccountType===key?"#1e1e1e":"transparent",cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s",textAlign:"left"}}>
+                        <span style={{fontSize:12,color:importAccountType===key?"#e8e0d5":"#666",fontWeight:importAccountType===key?500:400}}>{label}</span>
+                        <span style={{fontSize:10,color:"#444",lineHeight:1.4}}>{hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Drop zone */}
+                <div className="import-zone" onClick={()=>fileRef.current.click()}>
+                  <div style={{fontSize:26,marginBottom:6}}>📂</div>
+                  <div style={{fontSize:13,color:"#777"}}>Click to choose a file</div>
+                  <div style={{fontSize:11,color:"#3a3a3a",marginTop:3}}>.xlsx · .xls · .csv</div>
+                </div>
+                <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={handleFileLoad}/>
+              </div>
+            )}
+
+            {/* ── Step 2: Column picker + preview ── */}
+            {importStep==="columns"&&importRawData&&(()=>{
+              const PREVIEW_ROWS=12;
+              const colCount=Math.max(...importRawData.slice(0,importFirstRow+PREVIEW_ROWS).map(r=>r.length));
+              const colLetters=Array.from({length:colCount},(_,i)=>String.fromCharCode(65+i));
+              const fieldColor={date:"#3b82f6",amount:"#10b981",description:"#8b5cf6"};
+              const assignedFor=ci=>importDateCol===ci?"date":importAmtCol===ci?"amount":importDescCol===ci?"description":null;
+              const canImport=importDateCol!==null&&importAmtCol!==null&&importDescCol!==null;
+              const previewRows=importRawData.slice(0,importFirstRow+PREVIEW_ROWS);
+
+              return(
+                <div>
+                  <div style={{padding:"16px 20px 12px",borderBottom:"1px solid #1e1e1e",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <div className="sl" style={{marginBottom:2}}>Map Columns</div>
+                      <div style={{fontSize:11,color:"#555"}}>
+                        {importAccountType.charAt(0).toUpperCase()+importAccountType.slice(1)} statement
+                        {importRawData.length>0&&<span style={{color:"#333"}}> · {importRawData.length} rows</span>}
+                      </div>
+                    </div>
+                    <button className="btn-ghost" style={{fontSize:10}} onClick={()=>setImportStep("type")}>← Back</button>
+                  </div>
+
+                  {/* Column assignment dropdowns */}
+                  <div style={{padding:"14px 20px",borderBottom:"1px solid #1e1e1e",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                    {[
+                      {label:"Date Column",        field:"date",        val:importDateCol,        set:setImportDateCol},
+                      {label:"Amount Column",       field:"amount",      val:importAmtCol,         set:setImportAmtCol},
+                      {label:"Description Column",  field:"description", val:importDescCol,        set:setImportDescCol},
+                    ].map(({label,field,val,set})=>(
+                      <div key={field}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+                          <span style={{fontSize:9,color:fieldColor[field],letterSpacing:"0.12em",textTransform:"uppercase"}}>{label}</span>
+                          {val!==null
+                            ?<span style={{fontSize:8,background:fieldColor[field]+"22",color:fieldColor[field],borderRadius:4,padding:"1px 5px",letterSpacing:"0.06em"}}>auto</span>
+                            :<span style={{fontSize:8,background:"#f9731622",color:"#f97316",borderRadius:4,padding:"1px 5px",letterSpacing:"0.06em"}}>pick one</span>
+                          }
+                        </div>
+                        <select className="input-sm" value={val??""} onChange={e=>set(e.target.value===""?null:parseInt(e.target.value))}
+                          style={{borderColor:val!==null?fieldColor[field]+"55":"#f9731655",color:val!==null?"#ddd":"#555"}}>
+                          <option value="">— Pick column —</option>
+                          {colLetters.map((l,ci)=><option key={ci} value={ci}>{l} — {String(importRawData[importFirstRow]?.[ci]||"").slice(0,22)||"(empty)"}</option>)}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* First data row picker */}
+                  <div style={{padding:"10px 20px",borderBottom:"1px solid #1e1e1e",display:"flex",alignItems:"center",gap:12}}>
+                    <span style={{fontSize:10,color:"#444",letterSpacing:"0.08em",textTransform:"uppercase",whiteSpace:"nowrap"}}>Data starts at row</span>
+                    <select className="input-sm" value={importFirstRow} onChange={e=>setImportFirstRow(parseInt(e.target.value))} style={{width:80}}>
+                      {importRawData.map((_,i)=><option key={i} value={i}>{i+1}</option>)}
+                    </select>
+                    <span style={{fontSize:10,color:"#333"}}>{importRawData.length-importFirstRow} transaction{importRawData.length-importFirstRow!==1?"s":""} will be read</span>
+                  </div>
+
+                  {/* Spreadsheet preview */}
+                  <div style={{overflowX:"auto",maxHeight:280,overflowY:"auto"}}>
+                    <table style={{borderCollapse:"collapse",fontSize:11,width:"100%",minWidth:"max-content"}}>
+                      <thead style={{position:"sticky",top:0,zIndex:1}}>
+                        <tr style={{background:"#111"}}>
+                          <td style={{padding:"5px 8px",color:"#333",fontSize:9,borderRight:"1px solid #1e1e1e",borderBottom:"1px solid #1e1e1e",width:32,textAlign:"center"}}>#</td>
+                          {colLetters.map((l,ci)=>{
+                            const assigned=assignedFor(ci);
+                            return(
+                              <td key={ci} style={{padding:"5px 10px",borderRight:"1px solid #1e1e1e",borderBottom:"1px solid #1e1e1e",textAlign:"center",
+                                background:assigned?fieldColor[assigned]+"22":"#111",
+                                color:assigned?fieldColor[assigned]:"#444",
+                                fontWeight:assigned?600:400,fontSize:10,letterSpacing:"0.08em",whiteSpace:"nowrap"}}>
+                                {l}{assigned&&<span style={{fontSize:8,marginLeft:4,opacity:0.8}}>{assigned==="date"?"DATE":assigned==="amount"?"AMT":"DESC"}</span>}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewRows.map((row,ri)=>{
+                          const isDataRow=ri>=importFirstRow;
+                          return(
+                            <tr key={ri} style={{background:ri===importFirstRow?"#1a1f1a":ri%2===0?"#0f0f0f":"transparent",borderBottom:"1px solid #141414"}}>
+                              <td style={{padding:"4px 8px",color:isDataRow?"#555":"#2e2e2e",fontSize:9,borderRight:"1px solid #1e1e1e",textAlign:"center",whiteSpace:"nowrap"}}>
+                                {isDataRow?<span style={{color:"#10b981",fontSize:9}}>→</span>:""} {ri+1}
+                              </td>
+                              {colLetters.map((_,ci)=>{
+                                const assigned=assignedFor(ci);
+                                const cellVal=String(row[ci]||"");
+                                return(
+                                  <td key={ci} style={{padding:"4px 10px",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+                                    color:isDataRow&&assigned?fieldColor[assigned]:isDataRow?"#666":"#333",
+                                    background:isDataRow&&assigned?fieldColor[assigned]+"11":"transparent",
+                                    borderRight:"1px solid #141414",fontSize:isDataRow?11:10}}>
+                                    {cellVal}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Import button */}
+                  <div style={{padding:"14px 20px",display:"flex",gap:10,alignItems:"center"}}>
+                    <button className="btn btn-primary" style={{flex:1,padding:12,opacity:canImport?1:0.4,cursor:canImport?"pointer":"not-allowed"}} onClick={canImport?commitImport:undefined}>
+                      Import {importRawData.length-importFirstRow} Rows
+                    </button>
+                    {!canImport&&<span style={{fontSize:11,color:"#555"}}>Assign all three columns above to continue</span>}
+                  </div>
+                </div>
+              );
+            })()}
+
+          </div>
+        )}
+
+        {/* Add form */}
+        {showForm&&(
+          <div className="card fade-in" style={{padding:20,marginBottom:20}}>
+            <div className="sl">New Transaction</div>
+            <div style={{display:"grid",gap:10}}>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {["expense","income","notreported"].map(tf=>(
+                  <button key={tf} className={"btn chip "+(form.typeFilter===tf?"chip-active":"chip-inactive")} onClick={()=>handleTFChange(tf)} style={{fontSize:11}}>
+                    {tf==="notreported"?"Not Reported":tf[0].toUpperCase()+tf.slice(1)}
+                  </button>
+                ))}
+              </div>
+              <input className="input" placeholder="Description" value={form.description} onChange={e=>{setDupWarning(false);setForm(f=>({...f,description:e.target.value}));}}/>
+              <div className="grid-2">
+                <div>
+                  <input className={"input"+(amountError?" input-error":"")} type="number" placeholder="Amount" min="0.01" max="999999" value={form.amount} onChange={e=>{setAmountError("");setDupWarning(false);setForm(f=>({...f,amount:e.target.value}));}}/>
+                  {amountError&&<div style={{fontSize:11,color:"#f43f5e",marginTop:4}}>{amountError}</div>}
+                </div>
+                <input className="input" type="date" value={form.date} onChange={e=>{setDupWarning(false);setForm(f=>({...f,date:e.target.value}));}}/>
+              </div>
+              <div className="grid-2">
+                <select className="input" value={form.category} onChange={e=>handleCatChange(e.target.value)}>
+                  <option value="">— Category —</option>
+                  {availableCats.map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+                <select className="input" value={form.subcategory} disabled={!form.category} onChange={e=>setForm(f=>({...f,subcategory:e.target.value}))}>
+                  <option value="">— Subcategory —</option>
+                  {availableSubcats.map(s=><option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <input className="input" placeholder="Note (optional)" value={form.note||""} onChange={e=>setForm(f=>({...f,note:e.target.value}))}/>
+              {dupWarning&&(
+                <div style={{background:"#f97316"+"18",border:"1px solid #f9731644",borderRadius:8,padding:"10px 14px",fontSize:12,color:"#f97316",lineHeight:1.6}}>
+                  ⚠ A transaction with the same description, amount, and date already exists. Add anyway?
+                </div>
+              )}
+              <button className="btn btn-primary" onClick={addTransaction} style={{width:"100%",padding:12,background:dupWarning?"#f97316":undefined,color:dupWarning?"#fff":undefined}}>
+                {dupWarning?"Add Anyway (Possible Duplicate)":"Add Transaction"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Stats */}
+        <div className="grid-3" style={{marginBottom:20}}>
+          {[{label:statsLabels[0],value:stats.income,color:"#10b981"},{label:statsLabels[1],value:stats.expenses,color:"#f43f5e"},{label:statsLabels[2],value:stats.balance,color:stats.balance>=0?"#10b981":"#f43f5e"}].map(s=>(
+            <div key={s.label} className="stat-card"><div style={{fontSize:10,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:5}}>{s.label}</div><div style={{fontSize:"clamp(12px,2.2vw,18px)",fontWeight:500,color:s.color}}>{fmt(s.value)}</div></div>
+          ))}
+        </div>
+
+        {/* Tabs */}
+        <div style={{display:"flex",gap:4,marginBottom:16,flexWrap:"wrap"}}>
+          {[["transactions","Transactions"],["monthly","Monthly View"],["edit","⚙ Edit"]].map(([key,label])=>(
+            <button key={key} className={"tab "+(activeTab===key?"tab-active":"tab-inactive")} onClick={()=>setActiveTab(key)}>{label}</button>
+          ))}
+        </div>
+
+        {/* ── TRANSACTIONS TAB ── */}
+        {activeTab==="transactions"&&(
+          <div className="card" style={{marginBottom:20}}>
+            <div style={{padding:"14px 16px 0",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+              <div className="sl" style={{marginBottom:0}}>All Transactions</div>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                {[["all","All"],["expense","Expenses"],["income","Income"],["notreported","Not Reported"]].map(([key,label])=>(
+                  <button key={key} className={"btn chip "+(filterType===key?"chip-active":"chip-inactive")} onClick={()=>{setFilterType(key);setTxPage(0);}} style={{fontSize:10,padding:"3px 10px"}}>{label}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{padding:"10px 16px 0",display:"grid",gridTemplateColumns:"1fr",gap:8,alignItems:"center"}}>
+              <div style={{position:"relative"}}>
+                <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"#333",fontSize:13,pointerEvents:"none"}}>⌕</span>
+                <input className="input-sm" placeholder="Search description, category, note…" value={searchQuery} onChange={e=>{setSearchQuery(e.target.value);setTxPage(0);}} style={{paddingLeft:28,width:"100%"}}/>
+              </div>
+            </div>
+            <div style={{padding:"8px 16px 10px",display:"flex",gap:8,alignItems:"center",borderBottom:"1px solid #1c1c1c"}}>
+              <span style={{fontSize:10,color:"#333",whiteSpace:"nowrap",letterSpacing:"0.08em",textTransform:"uppercase"}}>Amount</span>
+              <div style={{display:"flex",alignItems:"center",gap:6,flex:1}}>
+                <input className="input-sm" type="number" placeholder="Min" min="0" value={amountMin} onChange={e=>{setAmountMin(e.target.value);setTxPage(0);}} style={{width:80,color:amountMin?"#ccc":"#333"}}/>
+                <span style={{color:"#333",fontSize:11}}>–</span>
+                <input className="input-sm" type="number" placeholder="Max" min="0" value={amountMax} onChange={e=>{setAmountMax(e.target.value);setTxPage(0);}} style={{width:80,color:amountMax?"#ccc":"#333"}}/>
+              </div>
+            </div>
+            {hasFilters&&(
+              <div style={{padding:"6px 16px",display:"flex",alignItems:"center",gap:8,background:"#111",borderBottom:"1px solid #1c1c1c"}}>
+                <span style={{fontSize:10,color:"#555"}}>{filteredTx.length} result{filteredTx.length!==1?"s":""}</span>
+                <button className="btn-ghost" style={{fontSize:10,padding:"2px 8px"}} onClick={clearFilters}>✕ Clear filters</button>
+              </div>
+            )}
+            <div style={{fontSize:10,color:"#2a2a2a",padding:"5px 16px 8px",letterSpacing:"0.05em",borderBottom:"1px solid #141414"}}>↑ click row to edit &nbsp;·&nbsp; ✦ to create a rule</div>
+            <div>
+              {filteredTx.length===0&&<div style={{padding:32,textAlign:"center",color:"#333",fontSize:13}}>No transactions found.</div>}
+              {pagedTx.map(t=><TxRow key={t.id} t={t} onRemove={removeTx} onEdit={openEditTx} onCreateRule={openCreateRule}/>)}
+            </div>
+            {txPageCount>1&&(
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 16px",borderTop:"1px solid #1c1c1c"}}>
+                <button className="btn-icon" style={{opacity:txPage===0?0.25:1,cursor:txPage===0?"not-allowed":"pointer"}} onClick={()=>{if(txPage>0)setTxPage(p=>p-1);}} disabled={txPage===0}>←</button>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  {Array.from({length:txPageCount},(_,i)=>{
+                    if(txPageCount<=7||i===0||i===txPageCount-1||Math.abs(i-txPage)<=1){
+                      return <button key={i} onClick={()=>setTxPage(i)} style={{minWidth:28,height:28,borderRadius:6,border:"1px solid "+(i===txPage?"#555":"#242424"),background:i===txPage?"#242424":"transparent",color:i===txPage?"#e8e0d5":"#555",fontSize:11,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{i+1}</button>;
+                    }
+                    if(Math.abs(i-txPage)===2){
+                      return <span key={i} style={{color:"#333",fontSize:11,padding:"0 2px"}}>…</span>;
+                    }
+                    return null;
+                  })}
+                </div>
+                <button className="btn-icon" style={{opacity:txPage===txPageCount-1?0.25:1,cursor:txPage===txPageCount-1?"not-allowed":"pointer"}} onClick={()=>{if(txPage<txPageCount-1)setTxPage(p=>p+1);}} disabled={txPage===txPageCount-1}>→</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── MONTHLY TAB ── */}
+        {activeTab==="monthly"&&(
+          <div className="fade-in">
+            <div className="card" style={{padding:"14px 20px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
+              <button className="btn-icon" onClick={()=>shiftMonth(-1)}>←</button>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <select className="month-select" value={monthYear.month} onChange={e=>setMonthYear(mv=>({...mv,month:parseInt(e.target.value)}))}>
+                  {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
+                </select>
+                <select className="month-select" value={monthYear.year} onChange={e=>setMonthYear(mv=>({...mv,year:parseInt(e.target.value)}))}>
+                  {availableYears.map(y=><option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+              <button className="btn-icon" onClick={()=>shiftMonth(1)}>→</button>
+            </div>
+            {(()=>{
+              const expTx=monthlyTx.filter(t=>t.type==="expense");
+              const avgExp=expTx.length>0?monthlyStats.expenses/expTx.length:0;
+              const savRate=monthlyStats.income>0?(monthlyStats.income-monthlyStats.expenses)/monthlyStats.income*100:0;
+              const budgetUtil=monthlyBudget>0?(monthlyStats.expenses/monthlyBudget*100):null;
+              const cards=[
+                {label:"Transactions",value:monthlyTx.length,display:monthlyTx.length,color:"#e8e0d5"},
+                {label:"Avg Expense", value:avgExp,           display:fmt(avgExp),color:"#f97316"},
+                {label:"Savings Rate",value:savRate,          display:savRate.toFixed(1)+"%",color:"#10b981"},
+                budgetUtil!==null?{label:"Budget Used",value:budgetUtil,display:budgetUtil.toFixed(0)+"%",color:budgetUtil>100?"#f43f5e":budgetUtil>80?"#f97316":"#10b981"}:{label:"Budget",value:0,display:"—",color:"#444"},
+              ];
+              return(
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:16}}>
+                  {cards.map(s=><div key={s.label} className="stat-card"><div style={{fontSize:10,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:5}}>{s.label}</div><div style={{fontSize:"clamp(12px,2.2vw,18px)",fontWeight:500,color:s.color}}>{s.display}</div></div>)}
+                </div>
+              );
+            })()}
+            <div className="card" style={{padding:20,marginBottom:16}}>
+              <div className="sl">Income vs Expenses — Last 12 Months</div>
+              <BarChart transactions={transactions} currentMonth={monthYear.month} currentYear={monthYear.year}/>
+            </div>
+            {(Object.keys(monthlyStats.byCat).length>0||Object.keys(monthlyStats.byIncomeCat).length>0)&&(
+              <div className="card" style={{padding:20,marginBottom:16}}>
+                <div style={{display:"flex",gap:32,flexWrap:"wrap"}}>
+                  {Object.keys(monthlyStats.byCat).length>0&&(
+                    <div style={{flex:"1 1 260px"}}>
+                      <div className="sl">Expenses by Category</div>
+                      <PieChart byCat={monthlyStats.byCat} totalSpend={monthlyStats.expenses}/>
+                    </div>
+                  )}
+                  {Object.keys(monthlyStats.byIncomeCat).length>0&&(
+                    <div style={{flex:"1 1 260px"}}>
+                      <div className="sl">Income by Category</div>
+                      <PieChart byCat={monthlyStats.byIncomeCat} totalSpend={monthlyStats.income}/>
+                    </div>
+                  )}
+                </div>
+                {Object.keys(monthlyStats.byCat).length>0&&(
+                  <div style={{marginTop:8}}>
+                    <div className="sl">Expense Breakdown</div>
+                    <CatBreakdown byCat={monthlyStats.byCat} maxVal={maxCatVal} taxonomy={taxonomy} totalSpend={monthlyStats.expenses}/>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="card">
+              <div style={{padding:"14px 16px 0"}}><div className="sl" style={{marginBottom:0}}>{monthlyTx.length} Transaction{monthlyTx.length!==1?"s":""}</div></div>
+              <div style={{fontSize:10,color:"#2a2a2a",padding:"5px 16px 8px",letterSpacing:"0.05em",borderBottom:"1px solid #141414"}}>↑ click row to edit &nbsp;·&nbsp; ✦ to create a rule</div>
+              <div>
+                {monthlyTx.length===0&&<div style={{padding:32,textAlign:"center",color:"#333",fontSize:13}}>No transactions in {MONTHS[monthYear.month]} {monthYear.year}.</div>}
+                {monthlyTx.slice().sort((a,b)=>new Date(b.date)-new Date(a.date)).map(t=><TxRow key={t.id} t={t} onRemove={removeTx} onEdit={openEditTx} onCreateRule={openCreateRule}/>)}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── EDIT TAB ── */}
+        {activeTab==="edit"&&(
+          <div className="fade-in">
+            <div style={{display:"flex",gap:6,marginBottom:16}}>
+              <button className={"subtab "+(editSub==="categories"?"subtab-active":"subtab-inactive")} onClick={()=>setEditSub("categories")}>Categories &amp; Subcategories</button>
+              <button className={"subtab "+(editSub==="rules"?"subtab-active":"subtab-inactive")} onClick={()=>setEditSub("rules")}>Description Rules</button>
+            </div>
+
+            {editSub==="categories"&&(
+              <div className="card fade-in" style={{marginBottom:20}}>
+                <div style={{padding:"16px 16px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div className="sl" style={{marginBottom:0}}>Categories &amp; Subcategories <span style={{color:"#333",fontWeight:400}}>({taxonomy.length})</span></div>
+                  <button className="btn-reset" onClick={resetTaxonomy}>↺ Reset to defaults</button>
+                </div>
+                <div style={{padding:"0 12px 8px",borderBottom:"1px solid #1e1e1e"}}>
+                  <div style={{display:"flex",gap:8,paddingLeft:20}}>
+                    <div style={{flex:"0 0 18px"}}/>
+                    {["Subcategory","Type","Budget"].map((h,i)=><div key={h} style={{flex:i===1?"0 0 90px":i===2?"0 0 70px":"1 1 120px",fontSize:9,color:"#333",letterSpacing:"0.12em",textTransform:"uppercase",textAlign:i===2?"right":undefined}}>{h}</div>)}
+                    <div style={{flex:"0 0 28px"}}/>
+                  </div>
+                  <div style={{fontSize:9,color:"#2a2a2a",marginTop:4,letterSpacing:"0.05em",paddingLeft:20}}>↑ click any field to edit inline &nbsp;·&nbsp; ⠿ drag to reorder within group</div>
+                </div>
+                <div style={{maxHeight:500,overflowY:"auto"}}>
+                  {(()=>{
+                    // Build ordered groups preserving flat indices
+                    const groups=[];
+                    const seen={};
+                    taxonomy.forEach((t,idx)=>{
+                      if(!seen[t.category]){seen[t.category]=true;groups.push({cat:t.category,entries:[]});}
+                      groups[groups.length-1].entries.push({t,idx});
+                    });
+                    return groups.map(({cat,entries})=>{
+                      const isCollapsed=collapsedCats.has(cat);
+                      const toggleCollapse=()=>setCollapsedCats(prev=>{const n=new Set(prev);n.has(cat)?n.delete(cat):n.add(cat);return n;});
+                      const catBudget=entries.reduce((s,{t})=>s+(t.budget||0),0);
+                      return(
+                        <div key={cat}>
+                          {/* Group header */}
+                          <div onClick={toggleCollapse} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 12px",background:"#111",borderBottom:"1px solid #1e1e1e",borderTop:"1px solid #1e1e1e",cursor:"pointer",userSelect:"none"}} className="group-header">
+                            <div style={{width:8,height:8,borderRadius:"50%",background:catColor(cat),flexShrink:0}}/>
+                            <div style={{flex:1,fontSize:11,fontWeight:500,color:"#bbb",letterSpacing:"0.04em"}}>{cat}</div>
+                            <div style={{fontSize:10,color:"#444"}}>{entries.length} {entries.length===1?"entry":"entries"}</div>
+                            {catBudget>0&&<div style={{fontSize:10,color:"#555"}}>{fmt(catBudget)}</div>}
+                            {cat!=="Not Assigned"&&(
+                              <button
+                                className="btn-danger"
+                                style={{fontSize:13,padding:"2px 7px",opacity:0.5}}
+                                title={`Remove entire "${cat}" category`}
+                                onClick={e=>{e.stopPropagation();removeCategoryGroup(cat);}}>
+                                ×
+                              </button>
+                            )}
+                            <div style={{fontSize:11,color:"#333",width:14,textAlign:"center"}}>{isCollapsed?"▶":"▼"}</div>
+                          </div>
+                          {/* Entries */}
+                          {!isCollapsed&&entries.map(({t,idx})=>{
+                            const isEd=editingTaxIdx===idx,ev=editingTaxVal;
+                            const cellStyle={cursor:"pointer",borderRadius:4,padding:"3px 6px",transition:"background 0.12s"};
+                            const isDragOver=dragOverTaxIdx===idx&&dragTaxIdx!==idx;
+                            const isDragging=dragTaxIdx===idx;
+                            return(
+                              <div key={idx} className="edit-row"
+                                draggable={!isEd}
+                                onDragStart={()=>{setDragTaxIdx(idx);setEditingTaxIdx(null);setEditingTaxVal({});}}
+                                onDragOver={e=>{e.preventDefault();setDragOverTaxIdx(idx);}}
+                                onDragLeave={()=>{if(dragOverTaxIdx===idx)setDragOverTaxIdx(null);}}
+                                onDrop={()=>dropTax(idx)}
+                                onDragEnd={()=>{setDragTaxIdx(null);setDragOverTaxIdx(null);}}
+                                style={{paddingLeft:20,background:isDragOver?"#1f1a2e":isEd?"#1e1e1e":"",flexWrap:isEd?"wrap":"nowrap",alignItems:isEd?"flex-start":"center",gap:isEd?6:8,opacity:isDragging?0.4:1,borderTop:isDragOver?"2px solid #8b5cf6":"",transition:"border 0.1s,opacity 0.1s"}}>
+                                {!isEd&&<div style={{flex:"0 0 18px",cursor:"grab",color:"#2e2e2e",fontSize:13,userSelect:"none",textAlign:"center"}} title="Drag to reorder">⠿</div>}
+                                {isEd?(
+                                  <div style={{width:"100%",display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                                    <div>
+                                      <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Category</div>
+                                      <input className="input-sm" list="cat-list-edit" value={ev.category} onChange={e=>setEditingTaxVal(f=>({...f,category:e.target.value}))} onKeyDown={e=>{if(e.key==="Escape"){setEditingTaxIdx(null);setEditingTaxVal({});}}} style={{width:"100%"}} autoFocus/>
+                                      <datalist id="cat-list-edit">{allCats.map(c=><option key={c} value={c}/>)}</datalist>
+                                    </div>
+                                    <div>
+                                      <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Subcategory</div>
+                                      <input className="input-sm" list="sub-list-edit" value={ev.subcategory} onChange={e=>setEditingTaxVal(f=>({...f,subcategory:e.target.value}))} onKeyDown={e=>{if(e.key==="Escape"){setEditingTaxIdx(null);setEditingTaxVal({});}}} style={{width:"100%"}}/>
+                                      <datalist id="sub-list-edit">{editingTaxSubcats.map(s=><option key={s} value={s}/>)}</datalist>
+                                    </div>
+                                    <div>
+                                      <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Type</div>
+                                      <select className="input-sm" value={ev.type} onChange={e=>setEditingTaxVal(f=>({...f,type:e.target.value}))} style={{width:"100%"}}>
+                                        <option value="expense">Expense</option><option value="income">Income</option><option value="notreported">Not Reported</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Budget (CAD)</div>
+                                      <input className="input-sm" type="number" value={ev.budget} onChange={e=>setEditingTaxVal(f=>({...f,budget:e.target.value}))} onKeyDown={e=>{if(e.key==="Escape"){setEditingTaxIdx(null);setEditingTaxVal({});}}} style={{width:"100%"}}/>
+                                    </div>
+                                    <div style={{gridColumn:"1 / -1",display:"flex",gap:8,marginTop:2}}>
+                                      <button className="btn btn-primary" style={{padding:"7px 18px",fontSize:12}} onClick={commitEditTax}>Save</button>
+                                      <button className="btn-ghost" onClick={()=>{setEditingTaxIdx(null);setEditingTaxVal({});}}>Cancel</button>
+                                    </div>
+                                  </div>
+                                ):(<>
+                                  <div style={{flex:"0 0 18px",display:"flex",alignItems:"center"}}><div style={{width:6,height:6,borderRadius:"50%",background:catColor(t.category),opacity:0.5}}/></div>
+                                  <div style={{...cellStyle,flex:"1 1 120px",fontSize:12,color:"#888"}} onClick={()=>startEditTax(idx)}>{t.subcategory}</div>
+                                  <div style={{flex:"0 0 90px",cursor:"pointer"}} onClick={()=>startEditTax(idx)}>
+                                    <span className="tag" style={{background:(TYPE_STYLE[t.type]||TYPE_STYLE.notreported).bg,color:(TYPE_STYLE[t.type]||TYPE_STYLE.notreported).color,fontSize:9}}>{TYPE_LABEL[t.type]||t.type}</span>
+                                  </div>
+                                  <div style={{...cellStyle,flex:"0 0 70px",fontSize:11,color:"#555",textAlign:"right"}} onClick={()=>startEditTax(idx)}>{t.budget>0?fmt(t.budget):<span style={{color:"#2a2a2a"}}>—</span>}</div>
+                                  <div style={{flex:"0 0 28px",textAlign:"right"}}><button className="btn-danger" style={{fontSize:14}} onClick={()=>removeTaxEntry(idx)}>×</button></div>
+                                </>)}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+                <div className="add-form">
+                  <div style={{fontSize:9,letterSpacing:"0.15em",color:"#444",textTransform:"uppercase",marginBottom:10}}>Add Entry</div>
+                  <div style={{display:"grid",gap:8}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div>
+                        <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Category</div>
+                        <input className="input-sm" list="cat-list" placeholder="e.g. Groceries" value={newTax.category} onChange={e=>setNewTax(f=>({...f,category:e.target.value,subcategory:""}))}/>
+                        <datalist id="cat-list">{allCats.map(c=><option key={c} value={c}/>)}</datalist>
+                      </div>
+                      <div>
+                        <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Subcategory</div>
+                        <input className="input-sm" list="sub-list" placeholder="e.g. Weekly Shop" value={newTax.subcategory} onChange={e=>setNewTax(f=>({...f,subcategory:e.target.value}))}/>
+                        <datalist id="sub-list">{taxSubcats.map(s=><option key={s} value={s}/>)}</datalist>
+                      </div>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"end"}}>
+                      <div>
+                        <div style={{fontSize:9,color:"#444",marginBottom:6,letterSpacing:"0.1em",textTransform:"uppercase"}}>Type</div>
+                        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                          {["expense","income","notreported"].map(tf=>(
+                            <button key={tf} className={"btn chip-sm "+(newTax.type===tf?"chip-active":"chip-inactive")} onClick={()=>setNewTax(f=>({...f,type:tf}))} style={{fontSize:10,padding:"3px 10px"}}>
+                              {tf==="notreported"?"Not Rep.":tf[0].toUpperCase()+tf.slice(1)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Budget (CAD)</div>
+                        <input className="input-sm" type="number" placeholder="0.00" value={newTax.budget} onChange={e=>setNewTax(f=>({...f,budget:e.target.value}))}/>
+                      </div>
+                    </div>
+                    <button className="btn btn-primary" onClick={addTaxEntry} style={{width:"100%",padding:"9px"}}>+ Add Category Entry</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {editSub==="rules"&&(
+              <div className="card fade-in" style={{marginBottom:20}}>
+                <div style={{padding:"16px 16px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div className="sl" style={{marginBottom:0}}>Description Match Rules <span style={{color:"#333",fontWeight:400}}>({descRules.length})</span></div>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <button className="btn-ghost" style={{fontSize:11,padding:"4px 10px",color:"#10b981",border:"1px solid #10b98133"}} onClick={reRunRules}>▶ Re-run Rules</button>
+                    <button className="btn-reset" onClick={resetRules}>↺ Reset to defaults</button>
+                  </div>
+                </div>
+                <div style={{padding:"0 16px 12px",borderBottom:"1px solid #1e1e1e"}}>
+                  <div style={{fontSize:11,color:"#444",lineHeight:1.8}}>
+                    Rules are tested in order — first match wins. Patterns are <span style={{color:"#666"}}>case-insensitive regex</span>.<br/>
+                    <span className="tag" style={{background:TYPE_STYLE.auto.bg,color:TYPE_STYLE.auto.color,marginRight:4}}>Auto</span>
+                    classifies as income when the amount is positive, expense when negative.
+                    <span className="tag" style={{background:TYPE_STYLE.notreported.bg,color:TYPE_STYLE.notreported.color,margin:"0 4px"}}>Not Reported</span>
+                    always excludes the transaction from totals.
+                  </div>
+                </div>
+                <div style={{padding:"8px 12px",borderBottom:"1px solid #1e1e1e"}}>
+                  <div style={{display:"flex",gap:8}}>
+                    <div style={{flex:"0 0 18px"}}/>
+                    {["Pattern (regex)","Category","Subcategory","Classification"].map((h,i)=><div key={h} style={{flex:i===0?"2 1 160px":i===3?"0 0 110px":"1 1 100px",fontSize:9,color:"#333",letterSpacing:"0.12em",textTransform:"uppercase"}}>{h}</div>)}
+                    <div style={{flex:"0 0 28px"}}/>
+                  </div>
+                  <div style={{fontSize:9,color:"#2a2a2a",marginTop:4,letterSpacing:"0.05em"}}>↑ click any field to edit inline &nbsp;·&nbsp; ⠿ drag to reorder</div>
+                </div>
+                <div style={{maxHeight:400,overflowY:"auto"}}>
+                  {descRules.map((r,idx)=>{
+                    const isEd=editingRuleIdx===idx,ev=editingRuleVal;
+                    const ts=TYPE_STYLE[r.type]||TYPE_STYLE.auto;
+                    const cellStyle={cursor:"pointer",borderRadius:4,padding:"3px 6px",transition:"background 0.12s"};
+                    const isDragOver=dragOverRuleIdx===idx&&dragRuleIdx!==idx;
+                    const isDragging=dragRuleIdx===idx;
+                    return(
+                      <div key={idx} className="edit-row"
+                        draggable={!isEd}
+                        onDragStart={()=>{setDragRuleIdx(idx);setEditingRuleIdx(null);setEditingRuleVal({});}}
+                        onDragOver={e=>{e.preventDefault();setDragOverRuleIdx(idx);}}
+                        onDragLeave={()=>{if(dragOverRuleIdx===idx)setDragOverRuleIdx(null);}}
+                        onDrop={()=>dropRule(idx)}
+                        onDragEnd={()=>{setDragRuleIdx(null);setDragOverRuleIdx(null);}}
+                        style={{background:isDragOver?"#1f1a2e":isEd?"#1e1e1e":"",flexWrap:isEd?"wrap":"nowrap",alignItems:isEd?"flex-start":"center",gap:isEd?6:8,opacity:isDragging?0.4:1,borderTop:isDragOver?"2px solid #8b5cf6":"",transition:"border 0.1s,opacity 0.1s"}}>
+                        {!isEd&&<div style={{flex:"0 0 18px",cursor:"grab",color:"#2e2e2e",fontSize:13,userSelect:"none",textAlign:"center"}} title="Drag to reorder">⠿</div>}
+                        {isEd?(
+                          <div style={{width:"100%",display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                            <div style={{gridColumn:"1 / -1"}}>
+                              <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Match Pattern (regex, max 200 chars)</div>
+                              <input className="input-sm" value={ev.pattern} maxLength={200} onChange={e=>setEditingRuleVal(f=>({...f,pattern:e.target.value}))} onKeyDown={e=>{if(e.key==="Escape"){setEditingRuleIdx(null);setEditingRuleVal({});}}} style={{width:"100%",fontFamily:"monospace",color:"#8b5cf6"}} autoFocus/>
+                            </div>
+                            <div>
+                              <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Category</div>
+                              <select className="input-sm" value={ev.category} onChange={e=>setEditingRuleVal(f=>({...f,category:e.target.value,subcategory:""}))} style={{width:"100%"}}>
+                                <option value="">— Select —</option>{editingRuleCats.map(c=><option key={c} value={c}>{c}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Subcategory</div>
+                              <select className="input-sm" value={ev.subcategory} disabled={!ev.category} onChange={e=>setEditingRuleVal(f=>({...f,subcategory:e.target.value}))} style={{width:"100%"}}>
+                                <option value="">— Select —</option>{editingRuleSubcats.map(s=><option key={s} value={s}>{s}</option>)}
+                              </select>
+                            </div>
+                            <div style={{gridColumn:"1 / -1"}}>
+                              <div style={{fontSize:9,color:"#444",marginBottom:6,letterSpacing:"0.1em",textTransform:"uppercase"}}>Classification</div>
+                              <RuleTypeSelector value={ev.type||"auto"} onChange={v=>setEditingRuleVal(f=>({...f,type:v,category:"",subcategory:""}))} size="small"/>
+                            </div>
+                            <div style={{gridColumn:"1 / -1",display:"flex",gap:8,marginTop:2}}>
+                              <button className="btn btn-primary" style={{padding:"7px 18px",fontSize:12}} onClick={commitEditRule}>Save</button>
+                              <button className="btn-ghost" onClick={()=>{setEditingRuleIdx(null);setEditingRuleVal({});}}>Cancel</button>
+                            </div>
+                          </div>
+                        ):(<>
+                          <div style={{...cellStyle,flex:"2 1 160px",fontSize:11,color:"#8b5cf6",fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>startEditRule(idx)} title={r.pattern}>{r.pattern}</div>
+                          <div style={{...cellStyle,flex:"1 1 100px",fontSize:11,color:"#bbb",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>startEditRule(idx)}>{r.category}</div>
+                          <div style={{...cellStyle,flex:"1 1 100px",fontSize:11,color:"#666",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>startEditRule(idx)}>{r.subcategory}</div>
+                          <div style={{flex:"0 0 110px",cursor:"pointer"}} onClick={()=>startEditRule(idx)}>
+                            <span className="tag" style={{background:ts.bg,color:ts.color,fontSize:9}}>{TYPE_LABEL[r.type]||TYPE_LABEL.auto}</span>
+                          </div>
+                          <div style={{flex:"0 0 28px",textAlign:"right"}}><button className="btn-danger" style={{fontSize:14}} onClick={()=>removeRuleEntry(idx)}>×</button></div>
+                        </>)}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="add-form">
+                  <div style={{fontSize:9,letterSpacing:"0.15em",color:"#444",textTransform:"uppercase",marginBottom:10}}>Add Rule</div>
+                  <div style={{display:"grid",gap:10}}>
+                    <div>
+                      <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Match Pattern (regex, max 200 chars)</div>
+                      <input className="input-sm" placeholder="e.g. STARBUCKS|TIM HORTONS" value={newRule.pattern} maxLength={200} onChange={e=>setNewRule(f=>({...f,pattern:e.target.value}))} style={{fontFamily:"monospace",color:"#8b5cf6"}}/>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div>
+                        <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Maps to Category</div>
+                        <select className="input-sm" value={newRule.category} onChange={e=>setNewRule(f=>({...f,category:e.target.value,subcategory:""}))}>
+                          <option value="">— Select —</option>{ruleCats.map(c=><option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Maps to Subcategory</div>
+                        <select className="input-sm" value={newRule.subcategory} disabled={!newRule.category} onChange={e=>setNewRule(f=>({...f,subcategory:e.target.value}))}>
+                          <option value="">— Select —</option>{ruleSubcats.map(s=><option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:9,color:"#444",marginBottom:6,letterSpacing:"0.1em",textTransform:"uppercase"}}>Classification</div>
+                      <RuleTypeSelector value={newRule.type} onChange={v=>setNewRule(f=>({...f,type:v,category:"",subcategory:""}))}/>
+                    </div>
+                    <button className="btn btn-primary" onClick={addRuleEntry} style={{width:"100%",padding:"9px"}}>+ Add Rule</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Duplicate Scanner ── */}
+            <div className="card fade-in" style={{marginBottom:20}}>
+              <div style={{padding:"16px 16px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div className="sl" style={{marginBottom:2}}>Duplicate Transaction Scanner</div>
+                  {dupGroups.length>0
+                    ?<div style={{fontSize:11,color:"#f97316"}}>{dupGroups.length} potential duplicate group{dupGroups.length!==1?"s":""} found</div>
+                    :<div style={{fontSize:11,color:"#10b981"}}>✓ No duplicates detected</div>
+                  }
+                </div>
+                {dupGroups.length>0&&(
+                  <button className="btn-ghost" style={{fontSize:10}} onClick={()=>setShowDupScanner(v=>!v)}>
+                    {showDupScanner?"Hide":"Review"}
+                  </button>
+                )}
+              </div>
+              {showDupScanner&&dupGroups.length>0&&(
+                <div style={{borderTop:"1px solid #1e1e1e"}}>
+                  {dupGroups.map((group,gi)=>(
+                    <div key={gi} style={{borderBottom:"1px solid #1c1c1c",padding:"10px 16px"}}>
+                      <div style={{fontSize:10,color:"#f97316",letterSpacing:"0.08em",marginBottom:8}}>
+                        ⚠ {group.length} identical transactions
+                      </div>
+                      {group.map((t,ti)=>(
+                        <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:ti<group.length-1?"1px solid #141414":""}}>
+                          <div style={{width:6,height:6,borderRadius:"50%",background:catColor(t.category),flexShrink:0}}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:12,color:"#ccc",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.description}</div>
+                            <div style={{fontSize:10,color:"#444",marginTop:2}}>{t.date} · {t.category} / {t.subcategory}</div>
+                          </div>
+                          <div style={{fontSize:12,color:t.type==="income"?"#10b981":"#f43f5e",whiteSpace:"nowrap",flexShrink:0}}>{t.type==="income"?"+":""}{fmt(Math.abs(t.amount))}</div>
+                          <button className="btn-danger" style={{fontSize:14,flexShrink:0}} title="Delete this transaction" onClick={()=>showConfirm("Delete this transaction?",`"${t.description}" on ${t.date} for ${fmt(Math.abs(t.amount))}`,"Delete",true,()=>removeTx(t.id))}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="card fade-in" style={{marginBottom:20,padding:20}}>
+              <div className="sl">Data Backup &amp; Export</div>
+              <p style={{fontSize:12,color:"#444",marginBottom:16,lineHeight:1.7}}>Export a full JSON backup of all data, or download your transactions as a CSV spreadsheet.</p>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                <button className="btn btn-primary"   style={{padding:"10px 20px"}} onClick={handleBackupExport}>↓ Export JSON Backup</button>
+                <button className="btn btn-secondary" style={{padding:"10px 20px"}} onClick={handleCSVExport}>↓ Export CSV</button>
+                <button className="btn btn-secondary" style={{padding:"10px 20px"}} onClick={()=>backupRef.current.click()}>↑ Restore Backup</button>
+                <input ref={backupRef} type="file" accept=".json" style={{display:"none"}} onChange={handleBackupImport}/>
+              </div>
+              <div style={{marginTop:12,fontSize:10,color:"#2e2e2e"}}>⚠ Restoring a backup will overwrite all current transactions, categories, and rules.</div>
+            </div>
+          </div>
+        )}
+
+        <div style={{textAlign:"center",fontSize:10,color:"#222",letterSpacing:"0.12em",paddingBottom:32}}>
+          {transactions.length} transactions · auto-saved to this browser
+        </div>
+      </div>
+
+      {/* Import toast */}
+      {importStatus&&(
+        <div className="toast" style={{borderColor:importStatus.count>0||importStatus.unmatched>0?"#10b98130":"#f43f5e30"}}>
+          {importStatus.errors===-1?"❌ Could not read file — is it a valid spreadsheet?"
+            :importStatus.fileType==="rerun"
+            ?importStatus.count===0
+              ?"⚠️ No transactions matched any rule."
+              :"✅ ▶ Rules applied · "+importStatus.count+" transaction"+(importStatus.count!==1?"s":"")+" updated"+(importStatus.unmatched>0?" · "+importStatus.unmatched+" still unassigned":"")
+            :importStatus.count===0&&(!importStatus.unmatched||importStatus.unmatched===0)
+            ?"⚠️ No transactions imported."+(importStatus.dupes>0?" "+importStatus.dupes+" duplicate"+(importStatus.dupes!==1?"s":"")+" skipped.":"")
+            :"✅ "+(importStatus.fileType==="chequing"?"🏦 Chequing":importStatus.fileType==="credit"?"💳 Credit Card":"📄 Generic")
+              +(importStatus.count>0?" · "+importStatus.count+" imported":"")
+              +(importStatus.dupes>0?" · "+importStatus.dupes+" duplicate"+(importStatus.dupes!==1?"s":"")+" skipped":"")
+              +(importStatus.errors>0?" · "+importStatus.errors+" rows skipped":"")
+              +(importStatus.unmatched>0?" · "+importStatus.unmatched+" need review":"")}
+        </div>
+      )}
+
+      {/* Rule saved toast */}
+      {ruleToast&&<div className="toast" style={{borderColor:"#8b5cf630",bottom:importStatus?68:24}}>{ruleToast}</div>}
+
+      {/* Undo toast */}
+      {undoTx&&(
+        <div className="undo-toast">
+          <span style={{color:"#666"}}>Transaction deleted</span>
+          <button className="btn btn-ghost" style={{padding:"4px 12px",fontSize:11,borderColor:"#e8e0d522",color:"#e8e0d5"}} onClick={handleUndo}>Undo</button>
+        </div>
+      )}
+
+      {/* Edit Transaction Modal */}
+      {editingTx&&(()=>{
+        const editCats=editForm.typeFilter==="income"?incomeCats:expenseCats;
+        const editSubcats=editForm.category?getSubcats(taxonomy,editForm.category,editForm.typeFilter):[];
+        const canSave=editForm.description&&editForm.amount&&editForm.category&&editForm.subcategory;
+        return(
+          <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)closeEditTx();}}>
+            <div className="modal-box" style={{background:"#181818",border:"1px solid #2e2e2e",borderRadius:16,width:"100%",maxWidth:500,overflow:"hidden",boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
+              <div style={{padding:"18px 22px 14px",borderBottom:"1px solid #222",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:10,letterSpacing:"0.2em",color:"#444",textTransform:"uppercase",marginBottom:4}}>Edit Transaction</div>
+                  <div style={{fontSize:12,color:"#555",maxWidth:360,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{editingTx.description}</div>
+                </div>
+                <button className="btn-danger" style={{fontSize:20,padding:"4px 10px"}} onClick={closeEditTx}>×</button>
+              </div>
+              <div style={{padding:"18px 22px",display:"grid",gap:14}}>
+                <div>
+                  <div style={{fontSize:9,letterSpacing:"0.15em",color:"#444",textTransform:"uppercase",marginBottom:8}}>Transaction Type</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {["expense","income","notreported"].map(tf=>(
+                      <button key={tf} className={"btn chip "+(editForm.typeFilter===tf?"chip-active":"chip-inactive")} style={{fontSize:11}} onClick={()=>handleEditTFChange(tf)}>
+                        {tf==="notreported"?"Not Reported":tf[0].toUpperCase()+tf.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div style={{fontSize:9,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:6}}>Description</div>
+                  <input className="input" value={editForm.description||""} onChange={e=>setEditForm(f=>({...f,description:e.target.value}))}/>
+                </div>
+                <div className="grid-2">
+                  <div>
+                    <div style={{fontSize:9,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:6}}>Amount</div>
+                    <input className="input" type="number" step="0.01" min="0.01" max="999999" value={editForm.amount||""} onChange={e=>setEditForm(f=>({...f,amount:e.target.value}))}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:9,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:6}}>Date</div>
+                    <input className="input" type="date" value={editForm.date||""} onChange={e=>setEditForm(f=>({...f,date:e.target.value}))}/>
+                  </div>
+                </div>
+                <div className="grid-2">
+                  <div>
+                    <div style={{fontSize:9,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:6}}>Category</div>
+                    <select className="input" value={editForm.category||""} onChange={e=>handleEditCatChange(e.target.value)}>
+                      <option value="">— Select —</option>{editCats.map(c=><option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{fontSize:9,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:6}}>Subcategory</div>
+                    <select className="input" value={editForm.subcategory||""} disabled={!editForm.category} onChange={e=>setEditForm(f=>({...f,subcategory:e.target.value}))}>
+                      <option value="">— Select —</option>{editSubcats.map(s=><option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <div style={{fontSize:9,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:6}}>Note</div>
+                  <input className="input" placeholder="Optional note…" value={editForm.note||""} onChange={e=>setEditForm(f=>({...f,note:e.target.value}))}/>
+                </div>
+                <div style={{display:"flex",gap:10,marginTop:2}}>
+                  <button className="btn btn-primary" style={{flex:1,padding:12,opacity:canSave?1:0.4,cursor:canSave?"pointer":"not-allowed"}} onClick={commitEditTx}>Save Changes</button>
+                  <button className="btn-reset" style={{padding:"10px 16px",color:"#f43f5e",borderColor:"#f43f5e22",fontSize:11}} onClick={deleteEditTx}>Delete</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Unmatched Review Modal */}
+      {unmatchedQueue.length>0&&(()=>{
+        const item=unmatchedQueue[reviewIdx]||unmatchedQueue[0];
+        const ed=reviewEdit(item);
+        const reviewCats=ed.typeFilter==="income"?incomeCats:expenseCats;
+        const reviewSubcats=ed.category?getSubcats(taxonomy,ed.category,ed.typeFilter):[];
+        const sourceLabel=item.source==="chequing"?"🏦 Chequing":item.source==="credit"?"💳 Credit Card":"📄 Generic";
+        const amtColor=item.amount>=0?"#10b981":"#f43f5e";
+        const total=unmatchedQueue.length,pos=(reviewIdx||0)+1;
+        const patternSuggestions=generatePatternSuggestions(item.description);
+        const readyToSave=ed.category&&ed.subcategory;
+        return(
+          <div style={{position:"fixed",top:0,right:0,bottom:0,left:0,background:"rgba(0,0,0,0.72)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:16,overflowY:"auto"}}>
+            <div style={{background:"#181818",border:"1px solid #2e2e2e",borderRadius:16,width:"100%",maxWidth:480,overflow:"hidden",boxShadow:"0 24px 64px rgba(0,0,0,0.6)"}}>
+              <div style={{padding:"18px 22px 14px",borderBottom:"1px solid #222",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:10,letterSpacing:"0.2em",color:"#444",textTransform:"uppercase",marginBottom:3}}>Review Unmatched</div>
+                  <div style={{fontSize:13,color:"#888"}}><span style={{color:"#e8e0d5",fontWeight:500}}>{pos}</span><span style={{color:"#333"}}> / {total}</span><span style={{color:"#333",marginLeft:8}}>— assign a category to save</span></div>
+                </div>
+                <button className="btn-danger" style={{fontSize:20,padding:"4px 10px"}} onClick={dismissReviewQueue} title="Dismiss all remaining">×</button>
+              </div>
+              <div style={{padding:"18px 22px",borderBottom:"1px solid #1e1e1e"}}>
+                <div style={{fontSize:11,color:"#444",marginBottom:8,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                  <span style={{background:"#1e1e1e",border:"1px solid #2a2a2a",borderRadius:6,padding:"3px 10px",fontSize:10,color:"#888"}}>{sourceLabel}</span>
+                  <span style={{color:"#555"}}>{item.date}</span>
+                </div>
+                <div style={{fontSize:16,fontWeight:500,color:"#ddd",marginBottom:10,lineHeight:1.4,wordBreak:"break-all"}}>{item.description}</div>
+                <div style={{fontSize:22,fontWeight:500,color:amtColor,letterSpacing:"-0.02em"}}>{item.amount>=0?"+":""}{fmt(Math.abs(item.amount))}</div>
+              </div>
+              <div style={{padding:"18px 22px",display:"grid",gap:14}}>
+                <div>
+                  <div style={{fontSize:9,color:"#444",letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>Transaction Type</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {["expense","income","notreported"].map(tf=>(
+                      <button key={tf} className={"btn chip "+(ed.typeFilter===tf?"chip-active":"chip-inactive")} style={{fontSize:11}} onClick={()=>setReviewEdit(item,{typeFilter:tf,category:"",subcategory:""})}>
+                        {tf==="notreported"?"Not Reported":tf[0].toUpperCase()+tf.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div>
+                    <div style={{fontSize:9,color:"#444",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>Category</div>
+                    <select className="input" value={ed.category} onChange={e=>{const cat=e.target.value,subs=cat?getSubcats(taxonomy,cat,ed.typeFilter):[];setReviewEdit(item,{category:cat,subcategory:subs[0]||""});}}>
+                      <option value="">— Select —</option>{reviewCats.map(c=><option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{fontSize:9,color:"#444",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>Subcategory</div>
+                    <select className="input" value={ed.subcategory} disabled={!ed.category} onChange={e=>setReviewEdit(item,{subcategory:e.target.value})}>
+                      <option value="">— Select —</option>{reviewSubcats.map(s=><option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {readyToSave&&(
+                  <div className="remember-box">
+                    <label style={{display:"flex",alignItems:"center",gap:9,cursor:"pointer"}}>
+                      <input type="checkbox" checked={reviewRemember} onChange={e=>{setReviewRemember(e.target.checked);setReviewPatternIdx(0);}} style={{accentColor:"#8b5cf6",width:14,height:14,cursor:"pointer"}}/>
+                      <span style={{fontSize:12,color:reviewRemember?"#bbb":"#555",transition:"color 0.15s"}}>Remember this pattern for future imports</span>
+                    </label>
+                    {reviewRemember&&(
+                      <div style={{marginTop:10}}>
+                        <div style={{fontSize:9,color:"#333",marginBottom:8,letterSpacing:"0.08em"}}>
+                          Saves as <span className="tag" style={{background:TYPE_STYLE.auto.bg,color:TYPE_STYLE.auto.color}}>Auto (by sign)</span> — income when positive, expense when negative.
+                        </div>
+                        {patternSuggestions.length>0&&(
+                          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                            <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:2}}>Match using</div>
+                            {patternSuggestions.map((s,i)=>(
+                              <label key={i} style={{display:"flex",alignItems:"center",gap:9,cursor:"pointer"}} onClick={()=>setReviewPatternIdx(i)}>
+                                <div style={{width:12,height:12,borderRadius:"50%",border:"1px solid "+(reviewPatternIdx===i?"#8b5cf6":"#333"),background:reviewPatternIdx===i?"#8b5cf6":"transparent",flexShrink:0,transition:"all 0.15s"}}/>
+                                <span style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:"0.08em",width:46,flexShrink:0}}>{s.label}</span>
+                                <code style={{fontSize:11,color:"#8b5cf6",wordBreak:"break-all"}}>{s.pattern}</code>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div style={{display:"flex",gap:10}}>
+                  <button className="btn btn-primary" style={{flex:1,padding:12,opacity:readyToSave?1:0.4,cursor:readyToSave?"pointer":"not-allowed"}} onClick={()=>commitReviewItem(item)}>Save &amp; Next</button>
+                  <button className="btn-ghost" style={{padding:"10px 18px"}} onClick={()=>skipReviewItem(item)}>Skip</button>
+                </div>
+                {total>1&&(
+                  <div style={{display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap"}}>
+                    {unmatchedQueue.map((q,i)=>(
+                      <button key={q.id} onClick={()=>setReviewIdx(i)} style={{width:8,height:8,borderRadius:"50%",border:"none",cursor:"pointer",padding:0,background:i===(reviewIdx||0)?"#e8e0d5":"#2e2e2e",transition:"background 0.15s"}}/>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── ONBOARDING OVERLAY ── */}
+      {isNewUser&&loaded&&(()=>{
+        const STEPS=["category","rule","transaction"];
+        const stepIdx=STEPS.indexOf(onboardStep);
+        const obExpCats=computeExpenseCats(taxonomy);
+        const obIncCats=computeIncomeCats(taxonomy);
+        const obRuleCats=obRule.type==="income"?obIncCats:obExpCats;
+        const obRuleSubcats=obRule.category?getSubcats(taxonomy,obRule.category,obRule.type==="auto"?"expense":obRule.type):[];
+        const obTxCats=obTx.typeFilter==="income"?obIncCats:obExpCats;
+        const obTxSubcats=obTx.category?getSubcats(taxonomy,obTx.category,obTx.typeFilter):[];
+
+        const Hint=({children})=>(
+          <div style={{display:"flex",gap:8,padding:"10px 12px",background:"#0d1a0d",border:"1px solid #10b98122",borderRadius:8,marginBottom:12}}>
+            <span style={{fontSize:14,flexShrink:0}}>💡</span>
+            <span style={{fontSize:11,color:"#6ee7b7",lineHeight:1.6}}>{children}</span>
+          </div>
+        );
+
+        const StepDots=()=>(
+          <div style={{display:"flex",gap:6,justifyContent:"center",marginBottom:24}}>
+            {STEPS.map((s,i)=>(
+              <div key={s} style={{width:6,height:6,borderRadius:"50%",background:i<stepIdx?"#10b981":i===stepIdx?"#e8e0d5":"#2a2a2a",transition:"background 0.3s"}}/>
+            ))}
+          </div>
+        );
+
+        return(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16,overflowY:"auto"}}>
+            <div style={{background:"#141414",border:"1px solid #2a2a2a",borderRadius:18,width:"100%",maxWidth:480,boxShadow:"0 32px 80px rgba(0,0,0,0.8)",overflow:"hidden"}}>
+
+              {/* ── Welcome ── */}
+              {onboardStep==="welcome"&&(
+                <div style={{padding:"40px 36px 36px",textAlign:"center"}}>
+                  <div style={{fontSize:32,marginBottom:16}}>💰</div>
+                  <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:900,color:"#e8e0d5",marginBottom:10,lineHeight:1.2}}>Welcome to<br/>Budget Tracker</h2>
+                  <p style={{fontSize:13,color:"#555",lineHeight:1.8,marginBottom:28}}>
+                    Track your income and expenses, set up auto-categorisation rules, and understand where your money goes.<br/>
+                    <span style={{color:"#3a3a3a"}}>This takes about 2 minutes.</span>
+                  </p>
+                  <div style={{display:"grid",gap:8,textAlign:"left",marginBottom:28}}>
+                    {[["📂","Add a category","Organise transactions into groups like Groceries or Rent"],["⚡","Create a rule","Auto-categorise future imports by description"],["✏️","Log a transaction","Add your first expense or income manually"]].map(([icon,title,desc])=>(
+                      <div key={title} style={{display:"flex",gap:12,padding:"10px 14px",background:"#1a1a1a",borderRadius:9,alignItems:"flex-start"}}>
+                        <span style={{fontSize:18,flexShrink:0}}>{icon}</span>
+                        <div>
+                          <div style={{fontSize:12,color:"#bbb",fontWeight:500,marginBottom:2}}>{title}</div>
+                          <div style={{fontSize:11,color:"#555",lineHeight:1.5}}>{desc}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button className="btn btn-primary" style={{width:"100%",padding:14,fontSize:14}} onClick={()=>setOnboardStep("category")}>Get Started →</button>
+                  <button className="btn-ghost" style={{width:"100%",marginTop:8,fontSize:11,color:"#333"}} onClick={obFinish}>Skip setup and go straight to the app</button>
+                </div>
+              )}
+
+              {/* ── Step 1: Category ── */}
+              {onboardStep==="category"&&(
+                <div style={{padding:"32px 28px 28px"}}>
+                  <StepDots/>
+                  <div style={{fontSize:9,letterSpacing:"0.2em",color:"#555",textTransform:"uppercase",marginBottom:6}}>Step 1 of 3</div>
+                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:"#e8e0d5",marginBottom:6}}>Add a Category</div>
+                  <p style={{fontSize:12,color:"#555",lineHeight:1.7,marginBottom:16}}>Categories group your transactions. You already have a few defaults — add one that's personal to you, or continue with what's there.</p>
+                  <Hint>Categories can be broad like <strong style={{color:"#a7f3d0"}}>Housing</strong> or specific like <strong style={{color:"#a7f3d0"}}>Car</strong>. Subcategories let you break them down further — e.g. <em style={{color:"#6ee7b7"}}>Mortgage</em> or <em style={{color:"#6ee7b7"}}>Fuel</em>.</Hint>
+
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                    <div>
+                      <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Category</div>
+                      <input className="input-sm" style={{width:"100%"}} placeholder="e.g. Housing" value={obCat.category} onChange={e=>setObCat(f=>({...f,category:e.target.value}))} autoFocus/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Subcategory</div>
+                      <input className="input-sm" style={{width:"100%"}} placeholder="e.g. Mortgage" value={obCat.subcategory} onChange={e=>setObCat(f=>({...f,subcategory:e.target.value}))}/>
+                    </div>
+                  </div>
+                  <div style={{marginBottom:16}}>
+                    <div style={{fontSize:9,color:"#444",marginBottom:6,letterSpacing:"0.1em",textTransform:"uppercase"}}>Type</div>
+                    <div style={{display:"flex",gap:6}}>
+                      {["expense","income","notreported"].map(t=>(
+                        <button key={t} className={"btn chip "+(obCat.type===t?"chip-active":"chip-inactive")} style={{fontSize:10,padding:"3px 10px"}} onClick={()=>setObCat(f=>({...f,type:t}))}>
+                          {t==="notreported"?"Not Reported":t[0].toUpperCase()+t.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{display:"grid",gap:8}}>
+                    <button className="btn btn-primary" style={{width:"100%",padding:12,opacity:obCat.category.trim()&&obCat.subcategory.trim()?1:0.4}} onClick={obCommitCategory}>Add &amp; Continue →</button>
+                    <button className="btn-ghost" style={{width:"100%",fontSize:11,color:"#444"}} onClick={()=>setOnboardStep("rule")}>Skip — use defaults for now</button>
+                  </div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:14}}>
+                    <span style={{fontSize:9,color:"#333",letterSpacing:"0.08em",textTransform:"uppercase",width:"100%",marginBottom:2}}>Your current categories</span>
+                    {[...new Set(taxonomy.filter(t=>t.category!=="Not Assigned").map(t=>t.category))].map(c=>(
+                      <span key={c} style={{fontSize:10,background:"#1e1e1e",color:"#555",borderRadius:5,padding:"2px 8px"}}>{c}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Step 2: Rule ── */}
+              {onboardStep==="rule"&&(
+                <div style={{padding:"32px 28px 28px"}}>
+                  <StepDots/>
+                  <div style={{fontSize:9,letterSpacing:"0.2em",color:"#555",textTransform:"uppercase",marginBottom:6}}>Step 2 of 3</div>
+                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:"#e8e0d5",marginBottom:6}}>Create an Auto-Rule</div>
+                  <p style={{fontSize:12,color:"#555",lineHeight:1.7,marginBottom:16}}>Rules automatically categorise transactions when you import a bank statement. This step is optional — you can add rules later.</p>
+                  <Hint>The pattern is matched against transaction descriptions. For example, the pattern <strong style={{color:"#a7f3d0"}}>NETFLIX</strong> would match any description containing "Netflix".</Hint>
+
+                  <div style={{display:"grid",gap:8,marginBottom:8}}>
+                    <div>
+                      <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Match Pattern</div>
+                      <input className="input-sm" style={{width:"100%",fontFamily:"monospace",color:"#8b5cf6"}} placeholder="e.g. NETFLIX|SPOTIFY" value={obRule.pattern} onChange={e=>{setObRuleError("");setObRule(f=>({...f,pattern:e.target.value}));}}/>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div>
+                        <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Category</div>
+                        <select className="input-sm" value={obRule.category} onChange={e=>setObRule(f=>({...f,category:e.target.value,subcategory:""}))} style={{width:"100%"}}>
+                          <option value="">— Select —</option>
+                          {obRuleCats.map(c=><option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Subcategory</div>
+                        <select className="input-sm" value={obRule.subcategory} disabled={!obRule.category} onChange={e=>setObRule(f=>({...f,subcategory:e.target.value}))} style={{width:"100%"}}>
+                          <option value="">— Select —</option>
+                          {obRuleSubcats.map(s=><option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:9,color:"#444",marginBottom:6,letterSpacing:"0.1em",textTransform:"uppercase"}}>Classification</div>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                        {[{v:"auto",l:"Auto (by sign)"},{v:"expense",l:"Force Expense"},{v:"income",l:"Force Income"}].map(({v,l})=>(
+                          <button key={v} className={"btn chip "+(obRule.type===v?"chip-active":"chip-inactive")} style={{fontSize:10,padding:"3px 10px"}} onClick={()=>setObRule(f=>({...f,type:v,category:"",subcategory:""}))}>
+                            {l}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  {obRuleError&&<div style={{fontSize:11,color:"#f43f5e",marginBottom:8}}>{obRuleError}</div>}
+                  <div style={{display:"grid",gap:8}}>
+                    <button className="btn btn-primary" style={{width:"100%",padding:12}} onClick={obCommitRule}>Save Rule &amp; Continue →</button>
+                    <button className="btn-ghost" style={{width:"100%",fontSize:11,color:"#444"}} onClick={()=>setOnboardStep("transaction")}>Skip — add rules later</button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Step 3: Transaction ── */}
+              {onboardStep==="transaction"&&(
+                <div style={{padding:"32px 28px 28px"}}>
+                  <StepDots/>
+                  <div style={{fontSize:9,letterSpacing:"0.2em",color:"#555",textTransform:"uppercase",marginBottom:6}}>Step 3 of 3</div>
+                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:"#e8e0d5",marginBottom:6}}>Log Your First Transaction</div>
+                  <p style={{fontSize:12,color:"#555",lineHeight:1.7,marginBottom:16}}>Add any recent expense or income. You can always import from a bank statement later for bulk entry.</p>
+                  <Hint>Enter the amount as a positive number — the type you select (Expense or Income) controls the sign automatically.</Hint>
+
+                  <div style={{display:"grid",gap:8,marginBottom:8}}>
+                    <div style={{display:"flex",gap:6}}>
+                      {["expense","income"].map(t=>(
+                        <button key={t} className={"btn chip "+(obTx.typeFilter===t?"chip-active":"chip-inactive")} style={{fontSize:11,padding:"5px 14px"}} onClick={()=>setObTx(f=>({...f,typeFilter:t,category:"",subcategory:""}))}>
+                          {t[0].toUpperCase()+t.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                    <input className="input-sm" style={{width:"100%"}} placeholder="Description (e.g. Grocery run)" value={obTx.description} onChange={e=>setObTx(f=>({...f,description:e.target.value}))}/>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <input className="input-sm" type="number" placeholder="Amount" min="0.01" value={obTx.amount} onChange={e=>{setObAmtError("");setObTx(f=>({...f,amount:e.target.value}));}}/>
+                      <input className="input-sm" type="date" value={obTx.date} onChange={e=>setObTx(f=>({...f,date:e.target.value}))}/>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div>
+                        <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Category</div>
+                        <select className="input-sm" value={obTx.category} onChange={e=>{const subs=getSubcats(taxonomy,e.target.value,obTx.typeFilter);setObTx(f=>({...f,category:e.target.value,subcategory:subs[0]||""}));}} style={{width:"100%"}}>
+                          <option value="">— Select —</option>
+                          {obTxCats.map(c=><option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Subcategory</div>
+                        <select className="input-sm" value={obTx.subcategory} disabled={!obTx.category} onChange={e=>setObTx(f=>({...f,subcategory:e.target.value}))} style={{width:"100%"}}>
+                          <option value="">— Select —</option>
+                          {obTxSubcats.map(s=><option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                  {obAmtError&&<div style={{fontSize:11,color:"#f43f5e",marginBottom:8}}>{obAmtError}</div>}
+                  <div style={{display:"grid",gap:8}}>
+                    <button className="btn btn-primary" style={{width:"100%",padding:12}} onClick={obCommitTransaction}>Add Transaction &amp; Finish →</button>
+                    <button className="btn-ghost" style={{width:"100%",fontSize:11,color:"#444"}} onClick={obFinish}>Skip — I'll add transactions later</button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Done ── */}
+              {onboardStep==="done"&&(
+                <div style={{padding:"48px 36px 40px",textAlign:"center"}}>
+                  <div style={{fontSize:40,marginBottom:16}}>🎉</div>
+                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:"#e8e0d5",marginBottom:10}}>You're all set!</div>
+                  <p style={{fontSize:12,color:"#555",lineHeight:1.8,marginBottom:28}}>
+                    Your categories, rules, and first transaction have been saved.<br/>
+                    Import a bank statement anytime using the <strong style={{color:"#888"}}>↑ Import</strong> button, or add transactions manually with <strong style={{color:"#888"}}>+ Add</strong>.
+                  </p>
+                  <div style={{display:"grid",gap:8,fontSize:11,color:"#444",textAlign:"left",marginBottom:28}}>
+                    {[["⚙ Edit tab","Manage categories and rules at any time"],["↑ Import","Import .xlsx or .csv bank statements"],["Monthly View","See charts and breakdowns by month"]].map(([k,v])=>(
+                      <div key={k} style={{display:"flex",gap:10,padding:"8px 12px",background:"#1a1a1a",borderRadius:8}}>
+                        <span style={{color:"#555",fontWeight:500,whiteSpace:"nowrap"}}>{k}</span>
+                        <span style={{color:"#3a3a3a"}}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button className="btn btn-primary" style={{width:"100%",padding:14,fontSize:14}} onClick={obFinish}>Go to Budget Tracker →</button>
+                </div>
+              )}
+
+            </div>
+          </div>
+        );
+      })()}
+      {createRuleTx&&(
+        <CreateRuleModal tx={createRuleTx} taxonomy={taxonomy} onSave={saveCreatedRule} onCancel={()=>setCreateRuleTx(null)}/>
+      )}
+
+      {/* Confirm Modal */}
+      {confirmModal&&(
+        <ConfirmModal message={confirmModal.message} detail={confirmModal.detail} confirmLabel={confirmModal.confirmLabel} danger={confirmModal.danger} onConfirm={()=>{confirmModal.onConfirm();setConfirmModal(null);}} onCancel={()=>setConfirmModal(null)}/>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+</body>
+</html>
