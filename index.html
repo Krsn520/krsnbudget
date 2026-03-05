@@ -1036,11 +1036,13 @@ function App() {
     reader.onload=evt=>{
       try{
         const b=JSON.parse(evt.target.result);
-        // Accept version 1 (legacy, no accounts) and version 2 (with accounts)
-        if(!b||![1,2].includes(b.version)){showConfirm("Invalid backup file","This file doesn't appear to be a valid Budget Tracker backup.","OK",false,()=>{});return;}
+        const v=b&&b.version;
+        const isValidVersion=(v===1||v===2);
+        const hasData=b&&Array.isArray(b.transactions);
+        if(!hasData||!isValidVersion){showConfirm("Invalid backup file","This file doesn't appear to be a valid Budget Tracker backup.","OK",false,()=>{});return;}
         const txN=(b.transactions||[]).length,taxN=(b.taxonomy||[]).length,rN=(b.descRules||[]).length,acctN=(b.accounts||[]).length;
         const detail=`This will permanently overwrite all current data with ${txN} transaction${txN!==1?"s":""}, ${acctN} account${acctN!==1?"s":""}, ${taxN} categor${taxN!==1?"ies":"y"}, and ${rN} rule${rN!==1?"s":""}. This cannot be undone.`
-          +(b.version===1?" (Legacy backup — transactions will appear as Not Linked until assigned to an account.)":"");
+          +(v===1?" (Legacy backup — transactions will appear as Not Linked until assigned to an account.)":"");
         pendingBackupRef.current=b;
         showConfirm("Restore this backup?",detail,"Restore Backup",true,()=>{
           const bk=pendingBackupRef.current;
@@ -1054,9 +1056,7 @@ function App() {
             const linked=bk.transactions.map(t=>{
               if(!t.accountId)return t;
               const acct=acctMap[t.accountId];
-              // If the account exists in the backup, keep the link and refresh the name
               if(acct)return{...t,accountId:acct.id,accountName:acct.name,source:acct.type};
-              // Account referenced but not present in backup — strip the link
               return{...t,accountId:null,accountName:null};
             });
             setTransactions(linked);
