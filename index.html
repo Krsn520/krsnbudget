@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -241,7 +241,12 @@ const RULE_TYPES = [
 ];
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-const STORAGE_KEY = "budget-tracker-v2", TAXONOMY_KEY = "budget-tracker-taxonomy", RULES_KEY = "budget-tracker-rules";
+const STORAGE_KEY = "budget-tracker-v2", TAXONOMY_KEY = "budget-tracker-taxonomy", RULES_KEY = "budget-tracker-rules", ACCOUNTS_KEY = "budget-tracker-accounts";
+const ACCOUNT_TYPE_META = {
+  chequing: { label:"Chequing",    icon:"🏦", color:"#3b82f6", hint:"Debits are expenses, credits are income" },
+  savings:  { label:"Savings",     icon:"🪙", color:"#10b981", hint:"Same sign convention as chequing" },
+  credit:   { label:"Credit Card", icon:"💳", color:"#f43f5e", hint:"All charges are treated as expenses" },
+};
 const fmt = n => new Intl.NumberFormat("en-CA",{style:"currency",currency:"CAD"}).format(n||0);
 const SEED_BASE = 1_000_000;
 const SEED = [
@@ -423,6 +428,7 @@ function TxRow({ t, onRemove, onEdit, onCreateRule }) {
   const ts = TYPE_STYLE[t.type] || TYPE_STYLE.notreported;
   const amtColor = t.type==="income"?"#10b981":t.type==="notreported"?"#9ca3af":"#f43f5e";
   const prefix   = t.type==="income"?"+":t.type==="notreported"?"±":"";
+  const acctMeta = t.source?ACCOUNT_TYPE_META[t.source]:null;
   return (
     <div className="tx-row" style={{cursor:"pointer"}} onClick={e=>{if(e.target.closest&&e.target.closest(".btn-danger,.btn-rule"))return;if(onEdit)onEdit(t);}}>
       <div style={{width:7,height:7,borderRadius:"50%",background:catColor(t.category),flexShrink:0,marginTop:t.note?2:0}}/>
@@ -433,6 +439,10 @@ function TxRow({ t, onRemove, onEdit, onCreateRule }) {
           <span className="tag" style={{background:catColor(t.category)+"18",color:catColor(t.category)}}>{t.category}</span>
           {t.subcategory && <span className="tag" style={{background:"#1e1e1e",color:"#555"}}>{t.subcategory}</span>}
           <span className="tag" style={{background:ts.bg,color:ts.color}}>{TYPE_LABEL[t.type]||t.type}</span>
+          {t.accountName
+            ?<span className="tag" style={{background:(acctMeta?acctMeta.color:"#888")+"18",color:(acctMeta?acctMeta.color:"#888"),fontSize:9}}>{t.accountName}</span>
+            :<span className="tag" style={{background:"#f9731618",color:"#f97316",fontSize:9}}>Not linked</span>
+          }
         </div>
         {t.note && <div style={{fontSize:11,color:"#4a4a4a",marginTop:4,fontStyle:"italic",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>"{t.note}"</div>}
       </div>
@@ -610,6 +620,75 @@ function CatBreakdown({ byCat, maxVal, taxonomy, totalSpend=0 }) {
   );
 }
 
+// ── AccountsPanel ─────────────────────────────────────────────────────────────
+function AccountsPanel({ accounts, transactions, addAccount, removeAccount }) {
+  const [newAcctName, setNewAcctName] = useState("");
+  const [newAcctType, setNewAcctType] = useState("chequing");
+  const [acctError,   setAcctError]   = useState("");
+  function handleAdd(){
+    const ok=addAccount(newAcctName, newAcctType);
+    if(!ok){setAcctError("An account with that name and type already exists.");return;}
+    setNewAcctName("");setAcctError("");
+  }
+  return(
+    <div className="card fade-in" style={{marginBottom:20}}>
+      <div style={{padding:"16px 16px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div className="sl" style={{marginBottom:0}}>Accounts <span style={{color:"#333",fontWeight:400}}>({accounts.length})</span></div>
+      </div>
+
+      {accounts.length===0&&(
+        <div style={{padding:"24px 20px",textAlign:"center",color:"#333",fontSize:13}}>No accounts yet. Add one below.</div>
+      )}
+
+      {["chequing","savings","credit"].map(type=>{
+        const meta=ACCOUNT_TYPE_META[type];
+        const typeAccounts=accounts.filter(a=>a.type===type);
+        if(typeAccounts.length===0)return null;
+        return(
+          <div key={type} style={{borderBottom:"1px solid #141414"}}>
+            <div style={{padding:"10px 16px 6px",display:"flex",alignItems:"center",gap:8,background:"#0d0d0d"}}>
+              <span style={{fontSize:13}}>{meta.icon}</span>
+              <span style={{fontSize:9,letterSpacing:"0.14em",color:meta.color,textTransform:"uppercase",fontWeight:600}}>{meta.label}</span>
+              <span style={{fontSize:10,color:"#333",flex:1}}>— {meta.hint}</span>
+            </div>
+            {typeAccounts.map(acct=>(
+              <div key={acct.id} className="edit-row" style={{padding:"10px 16px",display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:meta.color,flexShrink:0}}/>
+                <div style={{flex:1,fontSize:13,color:"#ccc"}}>{acct.name}</div>
+                <div style={{fontSize:10,color:"#444"}}>{transactions.filter(t=>t.accountId===acct.id).length} tx</div>
+                <button className="btn-danger" style={{fontSize:13,padding:"2px 8px"}} onClick={()=>removeAccount(acct.id)}>×</button>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+
+      {/* Add account form */}
+      <div className="add-form" style={{padding:"14px 16px"}}>
+        <div style={{fontSize:9,letterSpacing:"0.15em",color:"#444",textTransform:"uppercase",marginBottom:10}}>Add Account</div>
+        <input className="input-sm" placeholder="Account name (e.g. TD Chequing)" value={newAcctName}
+          onChange={e=>{setNewAcctName(e.target.value);setAcctError("");}}
+          style={{width:"100%",marginBottom:8}}/>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+          {["chequing","savings","credit"].map(type=>{
+            const meta=ACCOUNT_TYPE_META[type];
+            const sel=newAcctType===type;
+            return(
+              <button key={type} onClick={()=>setNewAcctType(type)}
+                className={"btn chip-sm "+(sel?"chip-active":"chip-inactive")}
+                style={{fontSize:10,borderColor:sel?meta.color+"55":"#242424",color:sel?meta.color:"#555"}}>
+                {meta.icon} {meta.label}
+              </button>
+            );
+          })}
+        </div>
+        {acctError&&<div style={{fontSize:11,color:"#f43f5e",marginBottom:8}}>{acctError}</div>}
+        <button className="btn btn-primary" style={{width:"100%",padding:"9px",opacity:newAcctName.trim()?1:0.4}} onClick={handleAdd}>+ Add Account</button>
+      </div>
+    </div>
+  );
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
   const now = new Date();
@@ -621,6 +700,8 @@ function App() {
   const [showForm, setShowForm]             = useState(false);
   const [showImport, setShowImport]         = useState(false);
   const [importStep, setImportStep]         = useState("type"); // "type" | "columns"
+  const [accounts, setAccounts]             = useState([]);
+  const [importAccountId, setImportAccountId] = useState(null);
   const [importAccountType, setImportAccountType] = useState("chequing");
   const [importRawData, setImportRawData]   = useState(null);
   const [importFirstRow, setImportFirstRow] = useState(0);
@@ -629,6 +710,7 @@ function App() {
   const [importDescCol, setImportDescCol]   = useState(null);
   const [importStatus, setImportStatus]     = useState(null);
   const [activeTab, setActiveTab]           = useState("transactions");
+  const [selectedAccountId, setSelectedAccountId] = useState(null); // null=all, "__unlinked__", or account id
   const [monthYear, setMonthYear]           = useState({ month:now.getMonth(), year:now.getFullYear() });
   const [taxonomy, setTaxonomy]             = useState(DEFAULT_TAXONOMY);
   const [descRules, setDescRules]           = useState(DEFAULT_DESC_RULES);
@@ -739,11 +821,13 @@ function App() {
     }catch(e){setIsNewUser(true);setTransactions([]);}
     try{const r=localStorage.getItem(TAXONOMY_KEY);if(r){const t=JSON.parse(r);if(Array.isArray(t)&&t.length>0)setTaxonomy(t);}}catch(e){}
     try{const r=localStorage.getItem(RULES_KEY);if(r){const t=JSON.parse(r);if(Array.isArray(t)&&t.length>0)setDescRules(t);}}catch(e){}
+    try{const r=localStorage.getItem(ACCOUNTS_KEY);if(r){const t=JSON.parse(r);if(Array.isArray(t))setAccounts(t);}}catch(e){}
     setLoaded(true);
   },[]);
   useEffect(()=>{if(!loaded)return;try{localStorage.setItem(STORAGE_KEY,JSON.stringify(transactions));}catch(e){}},[transactions,loaded]);
   useEffect(()=>{if(!loaded)return;try{localStorage.setItem(TAXONOMY_KEY,JSON.stringify(taxonomy));}catch(e){}},[taxonomy,loaded]);
   useEffect(()=>{if(!loaded)return;try{localStorage.setItem(RULES_KEY,JSON.stringify(descRules));}catch(e){}},[descRules,loaded]);
+  useEffect(()=>{if(!loaded)return;try{localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));}catch(e){}},[accounts,loaded]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const expenseCats = useMemo(()=>computeExpenseCats(taxonomy),[taxonomy]);
@@ -796,7 +880,7 @@ function App() {
   }
 
   // ── Edit Tx modal ─────────────────────────────────────────────────────────
-  function openEditTx(t){setEditingTx(t);setEditForm({description:t.description,amount:String(Math.abs(t.amount)),typeFilter:t.type==="notreported"?"notreported":t.type,category:t.category,subcategory:t.subcategory,date:t.date,note:t.note||""});}
+  function openEditTx(t){setEditingTx(t);setEditForm({description:t.description,amount:String(Math.abs(t.amount)),typeFilter:t.type==="notreported"?"notreported":t.type,category:t.category,subcategory:t.subcategory,date:t.date,note:t.note||"",accountId:t.accountId||null});}
   function closeEditTx(){setEditingTx(null);setEditForm({});}
   function handleEditTFChange(tf){setEditForm(f=>({...f,typeFilter:tf,category:"",subcategory:""}));}
   function handleEditCatChange(cat){const subs=cat?getSubcats(taxonomy,cat,editForm.typeFilter):[];setEditForm(f=>({...f,category:cat,subcategory:subs[0]||""}));}
@@ -805,7 +889,15 @@ function App() {
     const amt=parseFloat(editForm.amount);if(isNaN(amt)||amt<=0)return;
     const tax=getTaxonomyEntry(taxonomy,editForm.category,editForm.subcategory);
     const rt=tax.type||editForm.typeFilter,sign=rt==="income"?1:rt==="notreported"?1:-1;
-    setTransactions(prev=>prev.map(t=>t.id===editingTx.id?{...t,description:editForm.description,amount:sign*amt,type:rt,category:editForm.category,subcategory:editForm.subcategory,date:editForm.date,note:editForm.note||""}:t));
+    const linkedAcct=editForm.accountId?accounts.find(a=>a.id===editForm.accountId):null;
+    setTransactions(prev=>prev.map(t=>t.id===editingTx.id?{...t,
+      description:editForm.description,amount:sign*amt,type:rt,
+      category:editForm.category,subcategory:editForm.subcategory,
+      date:editForm.date,note:editForm.note||"",
+      accountId:linkedAcct?linkedAcct.id:null,
+      accountName:linkedAcct?linkedAcct.name:null,
+      source:linkedAcct?linkedAcct.type:(t.source||null),
+    }:t));
     closeEditTx();
   }
   function deleteEditTx(){showConfirm("Delete this transaction?",`"${editingTx.description}" on ${editingTx.date} for ${fmt(Math.abs(editingTx.amount))}`,"Delete",true,()=>{removeTx(editingTx.id);closeEditTx();});}
@@ -893,14 +985,19 @@ function App() {
 
   // ── Stats ─────────────────────────────────────────────────────────────────
   function txInMonth(t,m,y){const d=new Date(t.date+"T00:00:00");return d.getMonth()===m&&d.getFullYear()===y;}
-  const monthlyTx    = useMemo(()=>transactions.filter(t=>txInMonth(t,monthYear.month,monthYear.year)),[transactions,monthYear]);
-  const allStats     = useMemo(()=>calcStats(transactions),[transactions]);
+  const viewTx = useMemo(()=>{
+    if(selectedAccountId===null) return transactions;
+    if(selectedAccountId==="__unlinked__") return transactions.filter(t=>!t.accountId);
+    return transactions.filter(t=>t.accountId===selectedAccountId);
+  },[transactions,selectedAccountId]);
+  const monthlyTx    = useMemo(()=>viewTx.filter(t=>txInMonth(t,monthYear.month,monthYear.year)),[viewTx,monthYear]);
+  const allStats     = useMemo(()=>calcStats(viewTx),[viewTx]);
   const monthlyStats = useMemo(()=>calcStats(monthlyTx),[monthlyTx]);
   const stats        = activeTab==="monthly"?monthlyStats:allStats;
   const maxCatVal    = useMemo(()=>Math.max(...Object.values(stats.byCat).map(c=>c.total),1),[stats]);
   const filteredTx   = useMemo(()=>{
     const q=searchQuery.trim().toLowerCase();
-    return transactions.filter(t=>{
+    return viewTx.filter(t=>{
       if(filterType!=="all"&&t.type!==filterType)return false;
       if(q&&!(t.description+" "+t.category+" "+t.subcategory+" "+(t.note||"")).toLowerCase().includes(q))return false;
       const abs=Math.abs(t.amount);
@@ -908,7 +1005,7 @@ function App() {
       if(amountMax!==""&&abs>parseFloat(amountMax))return false;
       return true;
     }).sort((a,b)=>new Date(b.date)-new Date(a.date));
-  },[transactions,filterType,searchQuery,amountMin,amountMax]);
+  },[viewTx,filterType,searchQuery,amountMin,amountMax]);
   const TX_PAGE_SIZE = 20;
   const txPageCount  = Math.max(1, Math.ceil(filteredTx.length / TX_PAGE_SIZE));
   const pagedTx      = filteredTx.slice(txPage * TX_PAGE_SIZE, (txPage + 1) * TX_PAGE_SIZE);
@@ -958,6 +1055,24 @@ function App() {
   function resetImport(){
     setImportStep("type");setImportRawData(null);
     setImportFirstRow(0);setImportDateCol(null);setImportAmtCol(null);setImportDescCol(null);
+    setImportAccountId(null);
+  }
+
+  // ── Account management ────────────────────────────────────────────────────
+  function addAccount(name, type){
+    const trimmed=name.trim();
+    if(!trimmed||!type)return false;
+    if(accounts.some(a=>a.name.toLowerCase()===trimmed.toLowerCase()&&a.type===type))return false;
+    setAccounts(prev=>[...prev,{id:Date.now()+Math.random(),name:trimmed,type}]);
+    return true;
+  }
+  function removeAccount(id){
+    showConfirm(
+      "Remove this account?",
+      "Transactions imported under this account will keep their data but lose the account link.",
+      "Remove", true,
+      ()=>setAccounts(prev=>prev.filter(a=>a.id!==id))
+    );
   }
 
   function handleFileLoad(e){
@@ -1084,6 +1199,8 @@ function App() {
 
   function commitImport(){
     if(importDateCol===null||importAmtCol===null||importDescCol===null||!importRawData)return;
+    const selectedAccount=accounts.find(a=>a.id===importAccountId)||null;
+    const acctType=selectedAccount?selectedAccount.type:importAccountType;
     const cS=v=>String(v||"").trim();
     const pA=v=>parseFloat(String(v||"").replace(/[$,\s]/g,""));
     const dataRows=importRawData.slice(importFirstRow);
@@ -1094,16 +1211,16 @@ function App() {
       const date=parseDate(row[importDateCol]);
       if(!desc||isNaN(amt)||amt===0){if(desc||(!isNaN(amt)&&amt!==0))err++;return;}
       // Credit card: positive charges are expenses, so negate
-      if(importAccountType==="credit")amt=-Math.abs(amt);
+      if(acctType==="credit")amt=-Math.abs(amt);
       const m=matchDesc(descRules,desc,amt);
       const fA=m.type==="income"?Math.abs(amt):m.type==="expense"?-Math.abs(amt):amt;
       if(transactions.concat(imp).some(t=>t.date===date&&Math.abs(t.amount)===Math.abs(fA)&&t.description===desc)){dup++;return;}
-      const tx={id:Date.now()+Math.random(),description:desc,amount:fA,category:m.category,subcategory:m.subcategory,type:m.type,date,source:importAccountType};
+      const tx={id:Date.now()+Math.random(),description:desc,amount:fA,category:m.category,subcategory:m.subcategory,type:m.type,date,source:acctType,accountId:selectedAccount?selectedAccount.id:null,accountName:selectedAccount?selectedAccount.name:null};
       if(!m.matched)unmatched.push(tx);else imp.push(tx);
     });
     if(imp.length>0)setTransactions(prev=>imp.concat(prev));
     if(unmatched.length>0)setUnmatchedQueue(unmatched);
-    setImportStatus({count:imp.length,errors:err,dupes:dup,fileType:importAccountType,unmatched:unmatched.length});
+    setImportStatus({count:imp.length,errors:err,dupes:dup,fileType:acctType,unmatched:unmatched.length,accountName:selectedAccount?selectedAccount.name:null});
     setTimeout(()=>setImportStatus(null),6000);
     resetImport();
   }
@@ -1141,7 +1258,11 @@ function App() {
   if(!loaded)return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:"#555",fontSize:13,letterSpacing:"0.15em"}}>Loading your data…</div>;
 
   const monthLabel  = MONTHS[monthYear.month].slice(0,3);
-  const statsLabels = activeTab==="monthly"?[monthLabel+" Income",monthLabel+" Expenses",monthLabel+" Balance"]:["Total Income","Total Expenses","Net Balance"];
+  const acctLabel   = selectedAccountId===null?"All":selectedAccountId==="__unlinked__"?"Unlinked":(accounts.find(a=>a.id===selectedAccountId)?.name||"Account");
+  const statsPrefix = acctLabel==="All"?"":acctLabel+" · ";
+  const statsLabels = activeTab==="monthly"
+    ?[statsPrefix+monthLabel+" Income", statsPrefix+monthLabel+" Expenses", statsPrefix+monthLabel+" Balance"]
+    :[statsPrefix+"Income", statsPrefix+"Expenses", statsPrefix+"Balance"];
 
   return (
     <div style={{minHeight:"100vh",padding:"32px 16px"}}>
@@ -1163,37 +1284,63 @@ function App() {
         {showImport&&(
           <div className="card fade-in" style={{marginBottom:20}}>
 
-            {/* ── Step 1: Account type + file pick ── */}
+            {/* ── Step 1: Account selection + file pick ── */}
             {importStep==="type"&&(
               <div style={{padding:20}}>
                 <div className="sl">Import Bank Statement</div>
-                <div style={{fontSize:12,color:"#555",marginBottom:16,lineHeight:1.7}}>Select your account type, then upload your statement file.</div>
+                <div style={{fontSize:12,color:"#555",marginBottom:16,lineHeight:1.7}}>Select which account this statement belongs to, then upload the file.</div>
 
-                {/* Account type chips */}
-                <div style={{marginBottom:16}}>
-                  <div style={{fontSize:9,color:"#444",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8}}>Account Type</div>
-                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                    {[
-                      {key:"chequing", label:"Chequing",    hint:"Debits are expenses, credits are income"},
-                      {key:"savings",  label:"Savings",     hint:"Same sign convention as chequing"},
-                      {key:"credit",   label:"Credit Card", hint:"All charges treated as expenses"},
-                    ].map(({key,label,hint})=>(
-                      <button key={key} onClick={()=>setImportAccountType(key)}
-                        style={{display:"flex",flexDirection:"column",alignItems:"flex-start",gap:3,padding:"10px 14px",borderRadius:9,border:"1px solid "+(importAccountType===key?"#555":"#242424"),background:importAccountType===key?"#1e1e1e":"transparent",cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s",textAlign:"left"}}>
-                        <span style={{fontSize:12,color:importAccountType===key?"#e8e0d5":"#666",fontWeight:importAccountType===key?500:400}}>{label}</span>
-                        <span style={{fontSize:10,color:"#444",lineHeight:1.4}}>{hint}</span>
-                      </button>
-                    ))}
+                {accounts.length===0?(
+                  <div style={{background:"#111",border:"1px solid #2a2a2a",borderRadius:10,padding:"18px 20px",marginBottom:16,display:"flex",gap:12,alignItems:"flex-start"}}>
+                    <span style={{fontSize:20}}>🏦</span>
+                    <div>
+                      <div style={{fontSize:12,color:"#888",marginBottom:6}}>No accounts set up yet</div>
+                      <div style={{fontSize:11,color:"#444",lineHeight:1.6}}>Add your bank accounts first in <strong style={{color:"#666"}}>⚙ Edit → Accounts</strong>, then come back to import.</div>
+                      <button className="btn btn-secondary" style={{marginTop:10,fontSize:11,padding:"5px 14px"}} onClick={()=>{setShowImport(false);resetImport();setActiveTab("edit");setEditSub("accounts");}}>Go to Accounts →</button>
+                    </div>
                   </div>
-                </div>
+                ):(
+                  <div style={{marginBottom:16}}>
+                    {["chequing","savings","credit"].map(type=>{
+                      const meta=ACCOUNT_TYPE_META[type];
+                      const typeAccounts=accounts.filter(a=>a.type===type);
+                      if(typeAccounts.length===0)return null;
+                      return(
+                        <div key={type} style={{marginBottom:14}}>
+                          <div style={{fontSize:9,color:meta.color,letterSpacing:"0.14em",textTransform:"uppercase",marginBottom:7,display:"flex",alignItems:"center",gap:6}}>
+                            <span>{meta.icon}</span> {meta.label}
+                          </div>
+                          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                            {typeAccounts.map(acct=>{
+                              const sel=importAccountId===acct.id;
+                              return(
+                                <button key={acct.id} onClick={()=>{setImportAccountId(acct.id);setImportAccountType(acct.type);}}
+                                  style={{padding:"9px 16px",borderRadius:9,border:"1px solid "+(sel?meta.color+"88":"#242424"),background:sel?meta.color+"18":"transparent",cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s",fontSize:12,color:sel?meta.color:"#666",fontWeight:sel?600:400}}>
+                                  {acct.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
-                {/* Drop zone */}
-                <div className="import-zone" onClick={()=>fileRef.current.click()}>
-                  <div style={{fontSize:26,marginBottom:6}}>📂</div>
-                  <div style={{fontSize:13,color:"#777"}}>Click to choose a file</div>
-                  <div style={{fontSize:11,color:"#3a3a3a",marginTop:3}}>.xlsx · .xls · .csv</div>
-                </div>
-                <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={handleFileLoad}/>
+                {/* Drop zone — only shown when an account is selected */}
+                {importAccountId!==null&&(
+                  <>
+                    <div className="import-zone" onClick={()=>fileRef.current.click()}>
+                      <div style={{fontSize:26,marginBottom:6}}>📂</div>
+                      <div style={{fontSize:13,color:"#777"}}>Click to choose a file</div>
+                      <div style={{fontSize:11,color:"#3a3a3a",marginTop:3}}>.xlsx · .xls · .csv</div>
+                    </div>
+                    <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={handleFileLoad}/>
+                  </>
+                )}
+                {accounts.length>0&&importAccountId===null&&(
+                  <div style={{fontSize:11,color:"#444",marginTop:8}}>← Select an account above to continue</div>
+                )}
               </div>
             )}
 
@@ -1213,7 +1360,7 @@ function App() {
                     <div>
                       <div className="sl" style={{marginBottom:2}}>Map Columns</div>
                       <div style={{fontSize:11,color:"#555"}}>
-                        {importAccountType.charAt(0).toUpperCase()+importAccountType.slice(1)} statement
+                        {(()=>{const a=accounts.find(ac=>ac.id===importAccountId);return a?<span style={{color:ACCOUNT_TYPE_META[a.type].color}}>{a.name}</span>:<span>{importAccountType.charAt(0).toUpperCase()+importAccountType.slice(1)} statement</span>;})()}
                         {importRawData.length>0&&<span style={{color:"#333"}}> · {importRawData.length} rows</span>}
                       </div>
                     </div>
@@ -1356,6 +1503,33 @@ function App() {
           </div>
         )}
 
+        {/* Account selector bar */}
+        {(()=>{
+          const unlinkedCount=transactions.filter(t=>!t.accountId).length;
+          const pills=[{id:null,label:"All Accounts",color:"#e8e0d5",icon:"◈"}];
+          ["chequing","savings","credit"].forEach(type=>{
+            accounts.filter(a=>a.type===type).forEach(a=>{
+              pills.push({id:a.id,label:a.name,color:ACCOUNT_TYPE_META[type].color,icon:ACCOUNT_TYPE_META[type].icon,type});
+            });
+          });
+          if(unlinkedCount>0) pills.push({id:"__unlinked__",label:"Not Linked",color:"#f97316",icon:"⚠",count:unlinkedCount});
+          return(
+            <div style={{display:"flex",gap:6,marginBottom:20,overflowX:"auto",paddingBottom:4,msOverflowStyle:"none",scrollbarWidth:"none"}}>
+              {pills.map(p=>{
+                const active=selectedAccountId===p.id;
+                return(
+                  <button key={String(p.id)} onClick={()=>{setSelectedAccountId(p.id);setTxPage(0);}}
+                    style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:100,border:"1px solid "+(active?p.color+"88":"#242424"),background:active?p.color+"18":"transparent",color:active?p.color:"#555",fontSize:11,whiteSpace:"nowrap",cursor:"pointer",fontFamily:"inherit",fontWeight:active?600:400,transition:"all 0.15s",flexShrink:0}}>
+                    <span style={{fontSize:12}}>{p.icon}</span>
+                    {p.label}
+                    {p.count&&<span style={{background:p.color+"33",borderRadius:100,padding:"1px 6px",fontSize:10}}>{p.count}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
+
         {/* Stats */}
         <div className="grid-3" style={{marginBottom:20}}>
           {[{label:statsLabels[0],value:stats.income,color:"#10b981"},{label:statsLabels[1],value:stats.expenses,color:"#f43f5e"},{label:statsLabels[2],value:stats.balance,color:stats.balance>=0?"#10b981":"#f43f5e"}].map(s=>(
@@ -1460,7 +1634,7 @@ function App() {
             })()}
             <div className="card" style={{padding:20,marginBottom:16}}>
               <div className="sl">Income vs Expenses — Last 12 Months</div>
-              <BarChart transactions={transactions} currentMonth={monthYear.month} currentYear={monthYear.year}/>
+              <BarChart transactions={viewTx} currentMonth={monthYear.month} currentYear={monthYear.year}/>
             </div>
             {(Object.keys(monthlyStats.byCat).length>0||Object.keys(monthlyStats.byIncomeCat).length>0)&&(
               <div className="card" style={{padding:20,marginBottom:16}}>
@@ -1501,9 +1675,14 @@ function App() {
         {activeTab==="edit"&&(
           <div className="fade-in">
             <div style={{display:"flex",gap:6,marginBottom:16}}>
+              <button className={"subtab "+(editSub==="accounts"?"subtab-active":"subtab-inactive")} onClick={()=>setEditSub("accounts")}>Accounts</button>
               <button className={"subtab "+(editSub==="categories"?"subtab-active":"subtab-inactive")} onClick={()=>setEditSub("categories")}>Categories &amp; Subcategories</button>
               <button className={"subtab "+(editSub==="rules"?"subtab-active":"subtab-inactive")} onClick={()=>setEditSub("rules")}>Description Rules</button>
             </div>
+
+            {editSub==="accounts"&&(
+              <AccountsPanel accounts={accounts} transactions={transactions} addAccount={addAccount} removeAccount={removeAccount}/>
+            )}
 
             {editSub==="categories"&&(
               <div className="card fade-in" style={{marginBottom:20}}>
@@ -1817,7 +1996,7 @@ function App() {
         )}
 
         <div style={{textAlign:"center",fontSize:10,color:"#222",letterSpacing:"0.12em",paddingBottom:32}}>
-          {transactions.length} transactions · auto-saved to this browser
+          {viewTx.length} transaction{viewTx.length!==1?"s":""}{selectedAccountId!==null?" · "+acctLabel:""} · auto-saved to this browser
         </div>
       </div>
 
@@ -1831,7 +2010,7 @@ function App() {
               :"✅ ▶ Rules applied · "+importStatus.count+" transaction"+(importStatus.count!==1?"s":"")+" updated"+(importStatus.unmatched>0?" · "+importStatus.unmatched+" still unassigned":"")
             :importStatus.count===0&&(!importStatus.unmatched||importStatus.unmatched===0)
             ?"⚠️ No transactions imported."+(importStatus.dupes>0?" "+importStatus.dupes+" duplicate"+(importStatus.dupes!==1?"s":"")+" skipped.":"")
-            :"✅ "+(importStatus.fileType==="chequing"?"🏦 Chequing":importStatus.fileType==="credit"?"💳 Credit Card":"📄 Generic")
+            :"✅ "+(importStatus.accountName?importStatus.accountName:(importStatus.fileType==="chequing"?"🏦 Chequing":importStatus.fileType==="credit"?"💳 Credit Card":importStatus.fileType==="savings"?"🪙 Savings":"📄 Generic"))
               +(importStatus.count>0?" · "+importStatus.count+" imported":"")
               +(importStatus.dupes>0?" · "+importStatus.dupes+" duplicate"+(importStatus.dupes!==1?"s":"")+" skipped":"")
               +(importStatus.errors>0?" · "+importStatus.errors+" rows skipped":"")
@@ -1908,6 +2087,30 @@ function App() {
                   <div style={{fontSize:9,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:6}}>Note</div>
                   <input className="input" placeholder="Optional note…" value={editForm.note||""} onChange={e=>setEditForm(f=>({...f,note:e.target.value}))}/>
                 </div>
+                {accounts.length>0&&(
+                  <div>
+                    <div style={{fontSize:9,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:8}}>Account</div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      <button onClick={()=>setEditForm(f=>({...f,accountId:null}))}
+                        style={{padding:"5px 12px",borderRadius:100,border:"1px solid "+(editForm.accountId===null?"#888":"#242424"),background:editForm.accountId===null?"#1e1e1e":"transparent",color:editForm.accountId===null?"#ccc":"#555",fontSize:11,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
+                        None
+                      </button>
+                      {["chequing","savings","credit"].flatMap(type=>
+                        accounts.filter(a=>a.type===type).map(a=>{
+                          const meta=ACCOUNT_TYPE_META[type];
+                          const sel=editForm.accountId===a.id;
+                          return(
+                            <button key={a.id} onClick={()=>setEditForm(f=>({...f,accountId:a.id}))}
+                              style={{padding:"5px 12px",borderRadius:100,border:"1px solid "+(sel?meta.color+"88":"#242424"),background:sel?meta.color+"18":"transparent",color:sel?meta.color:"#555",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:sel?600:400,transition:"all 0.15s"}}>
+                              {meta.icon} {a.name}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                    {!editForm.accountId&&<div style={{fontSize:10,color:"#f97316",marginTop:6}}>⚠ No account linked — this transaction will appear under "Not Linked"</div>}
+                  </div>
+                )}
                 <div style={{display:"flex",gap:10,marginTop:2}}>
                   <button className="btn btn-primary" style={{flex:1,padding:12,opacity:canSave?1:0.4,cursor:canSave?"pointer":"not-allowed"}} onClick={commitEditTx}>Save Changes</button>
                   <button className="btn-reset" style={{padding:"10px 16px",color:"#f43f5e",borderColor:"#f43f5e22",fontSize:11}} onClick={deleteEditTx}>Delete</button>
@@ -1924,7 +2127,7 @@ function App() {
         const ed=reviewEdit(item);
         const reviewCats=ed.typeFilter==="income"?incomeCats:expenseCats;
         const reviewSubcats=ed.category?getSubcats(taxonomy,ed.category,ed.typeFilter):[];
-        const sourceLabel=item.source==="chequing"?"🏦 Chequing":item.source==="credit"?"💳 Credit Card":"📄 Generic";
+        const sourceLabel=item.accountName?item.accountName:item.source==="chequing"?"🏦 Chequing":item.source==="credit"?"💳 Credit Card":item.source==="savings"?"🪙 Savings":"📄 Generic";
         const amtColor=item.amount>=0?"#10b981":"#f43f5e";
         const total=unmatchedQueue.length,pos=(reviewIdx||0)+1;
         const patternSuggestions=generatePatternSuggestions(item.description);
