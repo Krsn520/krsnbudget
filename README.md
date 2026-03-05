@@ -126,7 +126,3 @@ In the app footer:
 All data is saved in your browser's `localStorage` — it stays on your device and is never sent anywhere. Each browser and device has its own independent copy. Clearing your browser's site data will erase your tracker data, so use **↓ Backup** regularly to keep a copy.
 
 ---
-
-## Hosting on GitHub Pages
-
-Because the tracker is a single self-contained HTML file with no server dependencies, it can be hosted for free on GitHub Pages. See the deployment guide for step-by-step instructions.
