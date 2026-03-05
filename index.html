@@ -1026,7 +1026,7 @@ function App() {
 
   // ── Backup ────────────────────────────────────────────────────────────────
   function handleBackupExport(){
-    const b={version:1,exportedAt:new Date().toISOString(),transactions,taxonomy,descRules};
+    const b={version:2,exportedAt:new Date().toISOString(),transactions,taxonomy,descRules,accounts};
     const blob=new Blob([JSON.stringify(b,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);
     const a=document.createElement("a");a.href=url;a.download=`budget-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);
   }
@@ -1036,12 +1036,31 @@ function App() {
     reader.onload=evt=>{
       try{
         const b=JSON.parse(evt.target.result);
-        if(!b||b.version!==1){showConfirm("Invalid backup file","This file doesn't appear to be a valid Budget Tracker backup.","OK",false,()=>{});return;}
-        const txN=(b.transactions||[]).length,taxN=(b.taxonomy||[]).length,rN=(b.descRules||[]).length;
+        // Accept version 1 (legacy, no accounts) and version 2 (with accounts)
+        if(!b||![1,2].includes(b.version)){showConfirm("Invalid backup file","This file doesn't appear to be a valid Budget Tracker backup.","OK",false,()=>{});return;}
+        const txN=(b.transactions||[]).length,taxN=(b.taxonomy||[]).length,rN=(b.descRules||[]).length,acctN=(b.accounts||[]).length;
+        const detail=`This will permanently overwrite all current data with ${txN} transaction${txN!==1?"s":""}, ${acctN} account${acctN!==1?"s":""}, ${taxN} categor${taxN!==1?"ies":"y"}, and ${rN} rule${rN!==1?"s":""}. This cannot be undone.`
+          +(b.version===1?" (Legacy backup — transactions will appear as Not Linked until assigned to an account.)":"");
         pendingBackupRef.current=b;
-        showConfirm("Restore this backup?",`This will permanently overwrite all current data with ${txN} transaction${txN!==1?"s":""}, ${taxN} categor${taxN!==1?"ies":"y"}, and ${rN} rule${rN!==1?"s":""}. This cannot be undone.`,"Restore Backup",true,()=>{
+        showConfirm("Restore this backup?",detail,"Restore Backup",true,()=>{
           const bk=pendingBackupRef.current;
-          if(Array.isArray(bk.transactions)&&bk.transactions.length>0)setTransactions(bk.transactions);
+          // Restore accounts first so we can build the lookup map
+          const restoredAccounts=Array.isArray(bk.accounts)&&bk.accounts.length>0?bk.accounts:[];
+          if(restoredAccounts.length>0)setAccounts(restoredAccounts);
+          // Build id→account map for re-linking
+          const acctMap={};restoredAccounts.forEach(a=>{acctMap[a.id]=a;});
+          // Re-link transactions: ensure accountName stays consistent with restored account objects
+          if(Array.isArray(bk.transactions)&&bk.transactions.length>0){
+            const linked=bk.transactions.map(t=>{
+              if(!t.accountId)return t;
+              const acct=acctMap[t.accountId];
+              // If the account exists in the backup, keep the link and refresh the name
+              if(acct)return{...t,accountId:acct.id,accountName:acct.name,source:acct.type};
+              // Account referenced but not present in backup — strip the link
+              return{...t,accountId:null,accountName:null};
+            });
+            setTransactions(linked);
+          }
           if(Array.isArray(bk.taxonomy)&&bk.taxonomy.length>0)setTaxonomy(bk.taxonomy);
           if(Array.isArray(bk.descRules)&&bk.descRules.length>0)setDescRules(bk.descRules);
           pendingBackupRef.current=null;
