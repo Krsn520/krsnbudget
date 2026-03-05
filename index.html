@@ -674,6 +674,7 @@ function App() {
   const pendingBackupRef = useRef(null);
   const undoTimerRef     = useRef(null);
   const ruleToastTimer   = useRef(null);
+  const fileRef          = useRef(null);
 
   function showConfirm(message, detail, confirmLabel, danger, onConfirm) {
     setConfirmModal({ message, detail, confirmLabel:confirmLabel||"Confirm", danger:!!danger, onConfirm });
@@ -955,7 +956,7 @@ function App() {
 
   // ── File import ───────────────────────────────────────────────────────────
   function resetImport(){
-    setShowImport(false);setImportStep("type");setImportRawData(null);
+    setImportStep("type");setImportRawData(null);
     setImportFirstRow(0);setImportDateCol(null);setImportAmtCol(null);setImportDescCol(null);
   }
 
