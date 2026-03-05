@@ -507,7 +507,7 @@ function PieChart({ byCat, totalSpend }) {
 }
 
 // ── BarChart ──────────────────────────────────────────────────────────────────
-function BarChart({ transactions, currentMonth, currentYear }) {
+function BarChart({ transactions, currentMonth, currentYear, onMonthClick }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const months=[];
   for(let i=11;i>=0;i--){let m=currentMonth-i,y=currentYear;while(m<0){m+=12;y--;}months.push({month:m,year:y});}
@@ -528,41 +528,61 @@ function BarChart({ transactions, currentMonth, currentYear }) {
   const bH=v=>Math.max(2,(v/maxVal)*cH);
   const bX=(i,w)=>PL+i*bGW+Math.floor((bGW-2*bW-gap)/2)+w*(bW+gap);
   const yTicks=[0,0.25,0.5,0.75,1].map(f=>f*maxVal);
+  // Tooltip data for the hovered column — rendered last so it sits above all bars
+  const tip=hoveredIdx!==null?data[hoveredIdx]:null;
+  const tipI=hoveredIdx;
   return (
     <div style={{marginBottom:20,overflowX:"auto"}}>
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:"block",fontFamily:"DM Mono,monospace"}}>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:"block",fontFamily:"DM Mono,monospace",overflow:"visible"}}>
+        {/* Grid lines */}
         {yTicks.map((val,ti)=>{const yy=PT+cH-(val/maxVal)*cH;return(
           <g key={ti}>
             <line x1={PL} x2={W-PR} y1={yy} y2={yy} stroke="#1e1e1e" strokeWidth="1"/>
             <text x={PL-4} y={yy+4} textAnchor="end" fill="#333" fontSize="8">{val>=1000?"$"+Math.round(val/1000)+"k":"$"+Math.round(val)}</text>
           </g>
         );})}
+        {/* Bars layer */}
         {data.map((d,i)=>{
           const isH=hoveredIdx===i,iH=bH(d.income),iX=bX(i,0),iY=PT+cH-iH,eH=bH(d.expense),eX=bX(i,1),eY=PT+cH-eH;
           const lX=PL+i*bGW+bGW/2,lY=H-PB+12,short=MONTHS[d.month].slice(0,3),isCur=d.month===currentMonth&&d.year===currentYear;
           return(
-            <g key={i} onMouseEnter={()=>setHoveredIdx(i)} onMouseLeave={()=>setHoveredIdx(null)} style={{cursor:"default"}}>
+            <g key={i}
+              onMouseEnter={()=>setHoveredIdx(i)}
+              onMouseLeave={()=>setHoveredIdx(null)}
+              onClick={()=>onMonthClick&&onMonthClick(d.month,d.year)}
+              style={{cursor:"pointer"}}>
+              <rect x={PL+i*bGW} width={bGW} y={PT} height={cH+PB} fill="transparent"/>
               {isH&&<rect x={PL+i*bGW} width={bGW} y={PT} height={cH} fill="#ffffff06" rx="2"/>}
               {d.income>0&&<rect x={iX} width={bW} y={iY} height={iH} fill="#10b981" opacity={isH?1:0.7} rx="2"/>}
               {d.expense>0&&<rect x={eX} width={bW} y={eY} height={eH} fill="#f43f5e" opacity={isH?1:0.7} rx="2"/>}
-              <text x={lX} y={lY} textAnchor="middle" fontSize="8" fill={isCur?"#e8e0d5":"#444"} fontWeight={isCur?"600":"400"}>{short}</text>
-              {isH&&(d.income>0||d.expense>0)&&(()=>{
-                const tipX=Math.min(lX+4,W-100);
-                return(<g>
-                  <rect x={tipX-2} y={PT-2} width={96} height={40} fill="#1e1e1e" stroke="#333" strokeWidth="0.5" rx="4"/>
-                  <text x={tipX+2} y={PT+10} fill="#888" fontSize="7">{short+" "+d.year}</text>
-                  {d.income>0&&<text x={tipX+2} y={PT+22} fill="#10b981" fontSize="8">{"In: "+fmt(d.income)}</text>}
-                  {d.expense>0&&<text x={tipX+2} y={PT+33} fill="#f43f5e" fontSize="8">{"Ex: "+fmt(d.expense)}</text>}
-                </g>);
-              })()}
+              <text x={lX} y={lY} textAnchor="middle" fontSize="8"
+                fill={isCur?"#e8e0d5":isH?"#888":"#444"}
+                fontWeight={isCur?"600":"400"}
+                textDecoration={isH?"underline":"none"}>{short}</text>
             </g>
           );
         })}
         <line x1={PL} x2={W-PR} y1={PT+cH} y2={PT+cH} stroke="#252525" strokeWidth="1"/>
+        {/* Tooltip layer — rendered last so it floats above all bars */}
+        {tip&&tipI!==null&&(()=>{
+          const short=MONTHS[tip.month].slice(0,3);
+          const tipW=108,tipH=tip.income>0&&tip.expense>0?46:tip.income>0||tip.expense>0?36:28;
+          const tipX=W-PR-tipW;
+          const tipY=PT+cH/2-tipH/2;
+          return(
+            <g style={{pointerEvents:"none"}}>
+              <rect x={tipX} y={tipY} width={tipW} height={tipH} fill="#242424" stroke="#444" strokeWidth="0.75" rx="5"/>
+              <text x={tipX+8} y={tipY+11} fill="#888" fontSize="7.5">{short+" "+tip.year}</text>
+              {tip.income>0&&<text x={tipX+8} y={tipY+(tip.expense>0?23:22)} fill="#10b981" fontSize="8.5">{"▲ "+fmt(tip.income)}</text>}
+              {tip.expense>0&&<text x={tipX+8} y={tipY+(tip.income>0?35:22)} fill="#f43f5e" fontSize="8.5">{"▼ "+fmt(tip.expense)}</text>}
+            </g>
+          );
+        })()}
       </svg>
       <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:4}}>
         <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:8,height:8,borderRadius:2,background:"#10b981"}}/><span style={{fontSize:10,color:"#555"}}>Income</span></div>
         <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:8,height:8,borderRadius:2,background:"#f43f5e"}}/><span style={{fontSize:10,color:"#555"}}>Expenses</span></div>
+        <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontSize:10,color:"#555"}}>↑ click a month to view it</span></div>
       </div>
     </div>
   );
@@ -1653,7 +1673,7 @@ function App() {
             })()}
             <div className="card" style={{padding:20,marginBottom:16}}>
               <div className="sl">Income vs Expenses — Last 12 Months</div>
-              <BarChart transactions={viewTx} currentMonth={monthYear.month} currentYear={monthYear.year}/>
+              <BarChart transactions={viewTx} currentMonth={monthYear.month} currentYear={monthYear.year} onMonthClick={(m,y)=>setMonthYear({month:m,year:y})}/>
             </div>
             {(Object.keys(monthlyStats.byCat).length>0||Object.keys(monthlyStats.byIncomeCat).length>0)&&(
               <div className="card" style={{padding:20,marginBottom:16}}>
