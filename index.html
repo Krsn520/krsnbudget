@@ -112,14 +112,24 @@ const DEFAULT_DESC_RULES = [];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function computeExpenseCats(taxonomy) {
-  const seen = {}, out = [];
-  taxonomy.forEach(t => { if (t.type !== "income" && !seen[t.category]) { seen[t.category] = 1; out.push(t.category); } });
-  return out;
+  // Preserve first-seen category order (matching Edit view), include only categories
+  // that have at least one non-income entry.
+  const order = [], orderSet = new Set(), qualified = new Set();
+  taxonomy.forEach(t => {
+    if (!orderSet.has(t.category)) { orderSet.add(t.category); order.push(t.category); }
+    if (t.type !== "income") qualified.add(t.category);
+  });
+  return order.filter(c => qualified.has(c));
 }
 function computeIncomeCats(taxonomy) {
-  const seen = {}, out = [];
-  taxonomy.forEach(t => { if (t.type !== "expense" && !seen[t.category]) { seen[t.category] = 1; out.push(t.category); } });
-  return out;
+  // Preserve first-seen category order (matching Edit view), include only categories
+  // that have at least one non-expense entry.
+  const order = [], orderSet = new Set(), qualified = new Set();
+  taxonomy.forEach(t => {
+    if (!orderSet.has(t.category)) { orderSet.add(t.category); order.push(t.category); }
+    if (t.type !== "expense") qualified.add(t.category);
+  });
+  return order.filter(c => qualified.has(c));
 }
 function getSubcats(taxonomy, cat, tf) {
   const seen = {}, out = [];
@@ -567,8 +577,10 @@ function BarChart({ transactions, currentMonth, currentYear, onMonthClick }) {
         {tip&&tipI!==null&&(()=>{
           const short=MONTHS[tip.month].slice(0,3);
           const tipW=108,tipH=tip.income>0&&tip.expense>0?46:tip.income>0||tip.expense>0?36:28;
-          const tipX=W-PR-tipW;
-          const tipY=PT+cH/2-tipH/2;
+          const colLeftX=PL+tipI*bGW;
+          const tipX=Math.max(PL,colLeftX-tipW-6);
+          const tallestBarTop=PT+cH-bH(Math.max(tip.income,tip.expense,1));
+          const tipY=Math.max(PT,tallestBarTop-4);
           return(
             <g style={{pointerEvents:"none"}}>
               <rect x={tipX} y={tipY} width={tipW} height={tipH} fill="#242424" stroke="#444" strokeWidth="0.75" rx="5"/>
@@ -709,6 +721,230 @@ function AccountsPanel({ accounts, transactions, addAccount, removeAccount }) {
   );
 }
 
+// ── SplitEditor ───────────────────────────────────────────────────────────────
+function SplitEditor({ total, splits, onChange, taxonomy, cats, typeFilter }) {
+  const LBL = {fontSize:9,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:5};
+  const allocated = splits.reduce((s,sp)=>s+(parseFloat(sp.amount)||0),0);
+  const remaining = Math.round((total - allocated)*100)/100;
+  const balanced   = Math.abs(remaining) < 0.005;
+
+  function getSubs(cat) {
+    const tf = typeFilter==="notreported"?"notreported":typeFilter;
+    const seen={},out=[];
+    taxonomy.forEach(t=>{
+      if(t.category===cat&&!seen[t.subcategory]){
+        const ok = tf==="notreported"?t.type==="notreported":(t.type===tf||t.type==="notreported");
+        if(ok){seen[t.subcategory]=1;out.push(t.subcategory);}
+      }
+    });
+    return out;
+  }
+  function update(id,patch){onChange(splits.map(sp=>sp.id===id?{...sp,...patch}:sp));}
+  function remove(id){if(splits.length>2)onChange(splits.filter(sp=>sp.id!==id));}
+  function addLine(){
+    const fillAmt = remaining>0?remaining.toFixed(2):"";
+    onChange([...splits,{id:Date.now()+Math.random(),amount:fillAmt,category:"",subcategory:""}]);
+  }
+
+  return(
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"80px 1fr 1fr 28px",gap:7,marginBottom:4}}>
+        <div style={LBL}>Amount</div>
+        <div style={LBL}>Category</div>
+        <div style={LBL}>Subcategory</div>
+        <div/>
+      </div>
+      {splits.map(sp=>{
+        const subs=sp.category?getSubs(sp.category):[];
+        return(
+          <div key={sp.id} style={{display:"grid",gridTemplateColumns:"80px 1fr 1fr 28px",gap:7,marginBottom:7,alignItems:"center"}}>
+            <input className="input" type="number" step="0.01" min="0.01" placeholder="0.00"
+              value={sp.amount} onChange={e=>update(sp.id,{amount:e.target.value})}
+              style={{padding:"8px 10px",fontSize:12}}/>
+            <select className="input" value={sp.category} style={{padding:"8px 10px",fontSize:12}}
+              onChange={e=>{const c=e.target.value;const s=c?getSubs(c):[];update(sp.id,{category:c,subcategory:s[0]||""});}}>
+              <option value="">— Category —</option>{cats.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+            <select className="input" value={sp.subcategory} disabled={!sp.category}
+              style={{padding:"8px 10px",fontSize:12}}
+              onChange={e=>update(sp.id,{subcategory:e.target.value})}>
+              <option value="">— Subcategory —</option>{subs.map(s=><option key={s} value={s}>{s}</option>)}
+            </select>
+            <button className="btn-danger" style={{fontSize:16,padding:"2px 6px",opacity:splits.length<=2?0.2:1,cursor:splits.length<=2?"not-allowed":"pointer"}}
+              onClick={()=>remove(sp.id)}>×</button>
+          </div>
+        );
+      })}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:4}}>
+        <button className="btn-ghost" style={{fontSize:11,padding:"4px 12px"}} onClick={addLine}>+ Add line</button>
+        <div style={{fontSize:11,fontWeight:500,color:balanced?"#10b981":remaining>0?"#f97316":"#f43f5e"}}>
+          {balanced?"✓ Balanced":remaining>0?"Remaining: "+fmt(remaining):"Over by: "+fmt(Math.abs(remaining))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── TaxPanel ─────────────────────────────────────────────────────────────────
+function TaxPanel({ panelType, taxonomy, collapsedCats, setCollapsedCats,
+  editingTaxIdx, editingTaxVal, setEditingTaxIdx, setEditingTaxVal, editingTaxSubcats,
+  dragTaxIdx, setDragTaxIdx, dragOverTaxIdx, setDragOverTaxIdx,
+  dropTax, startEditTax, commitEditTax, removeTaxEntry, removeCategoryGroup,
+  newTax, setNewTax, taxSubcats, allCats, addTaxEntry, resetTaxonomy }) {
+  const isExpense = panelType === "expense";
+  const matchEntry = t => isExpense ? (t.type === "expense" || t.type === "notreported") : t.type === "income";
+  const groups = [];
+  const seenCat = {};
+  taxonomy.forEach((t, idx) => {
+    if (!matchEntry(t)) return;
+    if (!seenCat[t.category]) { seenCat[t.category] = true; groups.push({ cat: t.category, entries: [] }); }
+    groups[groups.length - 1].entries.push({ t, idx });
+  });
+  const totalBudget = groups.reduce((s, g) => s + g.entries.reduce((a, { t }) => a + (t.budget || 0), 0), 0);
+  const accentColor = isExpense ? "#f43f5e" : "#10b981";
+  const cellStyle = { cursor: "pointer", borderRadius: 4, padding: "3px 5px", transition: "background 0.12s" };
+  return (
+    <div className="card fade-in" style={{ minWidth: 0, marginBottom: 0, display: "flex", flexDirection: "column" }}>
+      {/* Panel header */}
+      <div style={{ padding: "14px 16px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #1e1e1e" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 7, height: 7, borderRadius: "50%", background: accentColor, flexShrink: 0 }} />
+          <div className="sl" style={{ marginBottom: 0 }}>{isExpense ? "Expenses" : "Income"}</div>
+          <span style={{ fontSize: 10, color: "#2a2a2a" }}>{groups.reduce((s, g) => s + g.entries.length, 0)}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {isExpense && totalBudget > 0 && <span style={{ fontSize: 10, color: "#444" }}>{fmt(totalBudget)}</span>}
+          {isExpense && <button className="btn-reset" style={{ fontSize: 9, padding: "2px 8px" }} onClick={resetTaxonomy}>&#8634; Reset</button>}
+        </div>
+      </div>
+      {/* Column headers */}
+      <div style={{ padding: "5px 12px 4px 16px", borderBottom: "1px solid #141414" }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{ flex: "0 0 14px" }} />
+          <div style={{ flex: "1 1 0", minWidth: 0, fontSize: 9, color: "#2a2a2a", letterSpacing: "0.12em", textTransform: "uppercase" }}>Subcategory</div>
+          {isExpense && <div style={{ flex: "0 0 auto", fontSize: 9, color: "#2a2a2a", letterSpacing: "0.12em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Budget</div>}
+          <div style={{ flex: "0 0 22px" }} />
+        </div>
+        <div style={{ fontSize: 9, color: "#222", marginTop: 2, letterSpacing: "0.04em" }}>click to edit &nbsp;·&nbsp; &#8943; drag to reorder</div>
+      </div>
+      {/* Groups */}
+      <div style={{ overflowY: "auto", flex: 1, maxHeight: 440 }}>
+        {groups.length === 0 && (
+          <div style={{ padding: "24px 16px", textAlign: "center", color: "#2a2a2a", fontSize: 12 }}>No {isExpense ? "expense" : "income"} categories yet.</div>
+        )}
+        {groups.map(({ cat, entries }) => {
+          const collapseKey = cat + ":" + panelType;
+          const isCollapsed = collapsedCats.has(collapseKey);
+          const toggleCollapse = () => setCollapsedCats(prev => { const n = new Set(prev); n.has(collapseKey) ? n.delete(collapseKey) : n.add(collapseKey); return n; });
+          const catBudget = entries.reduce((s, { t }) => s + (t.budget || 0), 0);
+          return (
+            <div key={cat}>
+              <div onClick={toggleCollapse} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 6px 16px", background: "#111", borderBottom: "1px solid #1e1e1e", borderTop: "1px solid #1a1a1a", cursor: "pointer", userSelect: "none" }} className="group-header">
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: catColor(cat), flexShrink: 0 }} />
+                <div style={{ flex: 1, fontSize: 11, fontWeight: 500, color: "#bbb", letterSpacing: "0.04em" }}>{cat}</div>
+                {isExpense && catBudget > 0 && <div style={{ fontSize: 10, color: "#444" }}>{fmt(catBudget)}</div>}
+                {cat !== "Not Assigned" && (
+                  <button className="btn-danger" style={{ fontSize: 12, padding: "1px 6px", opacity: 0.4 }} title={"Remove " + cat}
+                    onClick={e => { e.stopPropagation(); removeCategoryGroup(cat); }}>×</button>
+                )}
+                <div style={{ fontSize: 10, color: "#2a2a2a", width: 12, textAlign: "center" }}>{isCollapsed ? "▶" : "▼"}</div>
+              </div>
+              {!isCollapsed && entries.map(({ t, idx }) => {
+                const isEd = editingTaxIdx === idx, ev = editingTaxVal;
+                const isDragOver = dragOverTaxIdx === idx && dragTaxIdx !== idx;
+                const isDragging = dragTaxIdx === idx;
+                return (
+                  <div key={idx} className="edit-row"
+                    draggable={!isEd}
+                    onDragStart={() => { setDragTaxIdx(idx); setEditingTaxIdx(null); setEditingTaxVal({}); }}
+                    onDragOver={e => { e.preventDefault(); setDragOverTaxIdx(idx); }}
+                    onDragLeave={() => { if (dragOverTaxIdx === idx) setDragOverTaxIdx(null); }}
+                    onDrop={() => dropTax(idx)}
+                    onDragEnd={() => { setDragTaxIdx(null); setDragOverTaxIdx(null); }}
+                    style={{ paddingLeft: 12, paddingRight: 8, background: isDragOver ? "#1f1a2e" : isEd ? "#1e1e1e" : "", flexWrap: isEd ? "wrap" : "nowrap", alignItems: isEd ? "flex-start" : "center", gap: 6, opacity: isDragging ? 0.4 : 1, borderTop: isDragOver ? "2px solid #8b5cf6" : "", transition: "border 0.1s,opacity 0.1s" }}>
+                    {!isEd && <div style={{ flex: "0 0 14px", cursor: "grab", color: "#2e2e2e", fontSize: 11, userSelect: "none", textAlign: "center" }}>&#8942;</div>}
+                    {isEd ? (
+                      <div style={{ width: "100%", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
+                        <div>
+                          <div style={{ fontSize: 9, color: "#444", marginBottom: 3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Category</div>
+                          <input className="input-sm" list="cat-list-edit" value={ev.category} onChange={e => setEditingTaxVal(f => ({ ...f, category: e.target.value }))} onKeyDown={e => { if (e.key === "Escape") { setEditingTaxIdx(null); setEditingTaxVal({}); } }} style={{ width: "100%" }} autoFocus />
+                          <datalist id="cat-list-edit">{allCats.map(c => <option key={c} value={c} />)}</datalist>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 9, color: "#444", marginBottom: 3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Subcategory</div>
+                          <input className="input-sm" list="sub-list-edit" value={ev.subcategory} onChange={e => setEditingTaxVal(f => ({ ...f, subcategory: e.target.value }))} onKeyDown={e => { if (e.key === "Escape") { setEditingTaxIdx(null); setEditingTaxVal({}); } }} style={{ width: "100%" }} />
+                          <datalist id="sub-list-edit">{editingTaxSubcats.map(s => <option key={s} value={s} />)}</datalist>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 9, color: "#444", marginBottom: 3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Type</div>
+                          <select className="input-sm" value={ev.type} onChange={e => setEditingTaxVal(f => ({ ...f, type: e.target.value }))} style={{ width: "100%" }}>
+                            <option value="expense">Expense</option><option value="income">Income</option><option value="notreported">Not Reported</option>
+                          </select>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 9, color: "#444", marginBottom: 3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Budget (CAD)</div>
+                          <input className="input-sm" type="number" value={ev.budget} onChange={e => setEditingTaxVal(f => ({ ...f, budget: e.target.value }))} onKeyDown={e => { if (e.key === "Escape") { setEditingTaxIdx(null); setEditingTaxVal({}); } }} style={{ width: "100%" }} />
+                        </div>
+                        <div style={{ gridColumn: "1 / -1", display: "flex", gap: 8, marginTop: 2 }}>
+                          <button className="btn btn-primary" style={{ padding: "6px 16px", fontSize: 12 }} onClick={commitEditTax}>Save</button>
+                          <button className="btn-ghost" onClick={() => { setEditingTaxIdx(null); setEditingTaxVal({}); }}>Cancel</button>
+                        </div>
+                      </div>
+                    ) : (<>
+                      <div style={{ flex: "0 0 18px", display: "flex", alignItems: "center" }}><div style={{ width: 5, height: 5, borderRadius: "50%", background: catColor(t.category), opacity: 0.4 }} /></div>
+                      <div style={{ ...cellStyle, flex: "1 1 0", fontSize: 12, color: "#888", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} onClick={() => startEditTax(idx)}>{t.subcategory}</div>
+                      {isExpense && <div style={{ ...cellStyle, flex: "0 0 auto", fontSize: 11, color: "#555", textAlign: "right", whiteSpace: "nowrap" }} onClick={() => startEditTax(idx)}>{t.budget > 0 ? fmt(t.budget) : <span style={{ color: "#2a2a2a" }}>—</span>}</div>}
+                      <div style={{ flex: "0 0 22px", textAlign: "right" }}><button className="btn-danger" style={{ fontSize: 13, padding: "0 2px" }} onClick={() => removeTaxEntry(idx)}>×</button></div>
+                    </>)}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+      {/* Add entry form */}
+      <div className="add-form" style={{ borderTop: "1px solid #1e1e1e" }}>
+        <div style={{ fontSize: 9, letterSpacing: "0.15em", color: "#444", textTransform: "uppercase", marginBottom: 8 }}>Add Entry</div>
+        <div style={{ display: "grid", gap: 7 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
+            <div>
+              <div style={{ fontSize: 9, color: "#444", marginBottom: 3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Category</div>
+              <input className="input-sm" list={"cat-list-" + panelType} placeholder="e.g. Groceries" value={newTax.category}
+                onChange={e => setNewTax(f => ({ ...f, category: e.target.value, subcategory: "" }))} />
+              <datalist id={"cat-list-" + panelType}>{allCats.map(c => <option key={c} value={c} />)}</datalist>
+            </div>
+            <div>
+              <div style={{ fontSize: 9, color: "#444", marginBottom: 3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Subcategory</div>
+              <input className="input-sm" list={"sub-list-" + panelType} placeholder="e.g. Weekly Shop" value={newTax.subcategory}
+                onChange={e => setNewTax(f => ({ ...f, subcategory: e.target.value }))} />
+              <datalist id={"sub-list-" + panelType}>{taxSubcats.map(s => <option key={s} value={s} />)}</datalist>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, alignItems: "end" }}>
+            <div>
+              <div style={{ fontSize: 9, color: "#444", marginBottom: 5, letterSpacing: "0.1em", textTransform: "uppercase" }}>Type</div>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                {(isExpense ? ["expense", "notreported"] : ["income"]).map(tf => (
+                  <button key={tf} className={"btn chip-sm " + (newTax.type === tf ? "chip-active" : "chip-inactive")}
+                    onClick={() => setNewTax(f => ({ ...f, type: tf }))} style={{ fontSize: 9, padding: "2px 8px" }}>
+                    {tf === "notreported" ? "Not Rep." : tf[0].toUpperCase() + tf.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {isExpense && <div>
+              <div style={{ fontSize: 9, color: "#444", marginBottom: 3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Budget (CAD)</div>
+              <input className="input-sm" type="number" placeholder="0.00" value={newTax.budget} onChange={e => setNewTax(f => ({ ...f, budget: e.target.value }))} />
+            </div>}
+          </div>
+          <button className="btn btn-primary" onClick={() => addTaxEntry(isExpense ? undefined : "income")} style={{ width: "100%", padding: "8px", fontSize: 12 }}>+ Add Entry</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
   const now = new Date();
@@ -764,6 +1000,10 @@ function App() {
   const [collapsedCats, setCollapsedCats]   = useState(new Set());
   const [dupWarning, setDupWarning]         = useState(false);
   const [showDupScanner, setShowDupScanner] = useState(false);
+  const [editSplitMode, setEditSplitMode]   = useState(false);
+  const [editSplits, setEditSplits]         = useState([]);
+  const [reviewSplitMode, setReviewSplitMode] = useState(false);
+  const [reviewSplits, setReviewSplits]     = useState([]);
 
   const [isNewUser, setIsNewUser]           = useState(false);
   const [onboardStep, setOnboardStep]       = useState("welcome"); // welcome | category | rule | transaction | done
@@ -901,23 +1141,34 @@ function App() {
 
   // ── Edit Tx modal ─────────────────────────────────────────────────────────
   function openEditTx(t){setEditingTx(t);setEditForm({description:t.description,amount:String(Math.abs(t.amount)),typeFilter:t.type==="notreported"?"notreported":t.type,category:t.category,subcategory:t.subcategory,date:t.date,note:t.note||"",accountId:t.accountId||null});}
-  function closeEditTx(){setEditingTx(null);setEditForm({});}
+  function closeEditTx(){setEditingTx(null);setEditForm({});setEditSplitMode(false);setEditSplits([]);}
   function handleEditTFChange(tf){setEditForm(f=>({...f,typeFilter:tf,category:"",subcategory:""}));}
   function handleEditCatChange(cat){const subs=cat?getSubcats(taxonomy,cat,editForm.typeFilter):[];setEditForm(f=>({...f,category:cat,subcategory:subs[0]||""}));}
   function commitEditTx(){
+    const linkedAcct=editForm.accountId?accounts.find(a=>a.id===editForm.accountId):null;
+    const base={description:editForm.description,date:editForm.date,note:editForm.note||"",
+      accountId:linkedAcct?linkedAcct.id:null,accountName:linkedAcct?linkedAcct.name:null,
+      source:linkedAcct?linkedAcct.type:(editingTx.source||null)};
+    if(editSplitMode){
+      const total=parseFloat(editForm.amount);if(isNaN(total)||total<=0)return;
+      const sum=editSplits.reduce((s,sp)=>s+(parseFloat(sp.amount)||0),0);
+      if(Math.abs(sum-total)>0.005)return;
+      if(!editSplits.every(sp=>sp.category&&sp.subcategory))return;
+      const newTxs=editSplits.map(sp=>{
+        const tax=getTaxonomyEntry(taxonomy,sp.category,sp.subcategory);
+        const rt=tax.type||editForm.typeFilter;
+        const sign=rt==="income"?1:rt==="notreported"?1:-1;
+        return{id:Date.now()+Math.random(),...base,amount:sign*parseFloat(sp.amount),category:sp.category,subcategory:sp.subcategory,type:rt};
+      });
+      setTransactions(prev=>[...newTxs,...prev.filter(t=>t.id!==editingTx.id)]);
+      closeEditTx();return;
+    }
     if(!editForm.description||!editForm.amount||!editForm.category||!editForm.subcategory)return;
     const amt=parseFloat(editForm.amount);if(isNaN(amt)||amt<=0)return;
     const tax=getTaxonomyEntry(taxonomy,editForm.category,editForm.subcategory);
     const rt=tax.type||editForm.typeFilter,sign=rt==="income"?1:rt==="notreported"?1:-1;
-    const linkedAcct=editForm.accountId?accounts.find(a=>a.id===editForm.accountId):null;
-    setTransactions(prev=>prev.map(t=>t.id===editingTx.id?{...t,
-      description:editForm.description,amount:sign*amt,type:rt,
-      category:editForm.category,subcategory:editForm.subcategory,
-      date:editForm.date,note:editForm.note||"",
-      accountId:linkedAcct?linkedAcct.id:null,
-      accountName:linkedAcct?linkedAcct.name:null,
-      source:linkedAcct?linkedAcct.type:(t.source||null),
-    }:t));
+    setTransactions(prev=>prev.map(t=>t.id===editingTx.id?{...t,...base,amount:sign*amt,type:rt,
+      category:editForm.category,subcategory:editForm.subcategory}:t));
     closeEditTx();
   }
   function deleteEditTx(){showConfirm("Delete this transaction?",`"${editingTx.description}" on ${editingTx.date} for ${fmt(Math.abs(editingTx.amount))}`,"Delete",true,()=>{removeTx(editingTx.id);closeEditTx();});}
@@ -936,7 +1187,7 @@ function App() {
     setDescRules(prev=>prev.map((r,i)=>i===editingRuleIdx?{...editingRuleVal}:r));
     setEditingRuleIdx(null);setEditingRuleVal({});
   }
-  function addTaxEntry(){if(!newTax.category.trim()||!newTax.subcategory.trim())return;setTaxonomy(prev=>[...prev,{category:newTax.category.trim(),subcategory:newTax.subcategory.trim(),type:newTax.type,budget:parseFloat(newTax.budget)||0}]);setNewTax(BLANK_TAX);}
+  function addTaxEntry(typeOverride){if(!newTax.category.trim()||!newTax.subcategory.trim())return;const entryType=typeOverride||newTax.type;setTaxonomy(prev=>[...prev,{category:newTax.category.trim(),subcategory:newTax.subcategory.trim(),type:entryType,budget:parseFloat(newTax.budget)||0}]);setNewTax(BLANK_TAX);}
   function removeTaxEntry(idx){showConfirm("Remove this category entry?",`${taxonomy[idx].category} → ${taxonomy[idx].subcategory}`,"Remove",true,()=>setTaxonomy(prev=>prev.filter((_,i)=>i!==idx)));}
   function removeCategoryGroup(cat){
     if(cat==="Not Assigned")return;
@@ -1268,6 +1519,23 @@ function App() {
   function reviewEdit(item){return reviewEdits[item.id]||{typeFilter:item.type==="notreported"?"notreported":item.type,category:item.category,subcategory:item.subcategory};}
   function setReviewEdit(item,patch){setReviewEdits(prev=>{const cur=reviewEdit(item);return{...prev,[item.id]:{...cur,...patch}};});}
   function commitReviewItem(item){
+    if(reviewSplitMode){
+      const total=Math.abs(item.amount);
+      const sum=reviewSplits.reduce((s,sp)=>s+(parseFloat(sp.amount)||0),0);
+      if(Math.abs(sum-total)>0.005)return;
+      if(!reviewSplits.every(sp=>sp.category&&sp.subcategory))return;
+      const newTxs=reviewSplits.map(sp=>{
+        const tax=getTaxonomyEntry(taxonomy,sp.category,sp.subcategory);
+        const rt=tax.type||(item.amount<0?"expense":"income");
+        const sign=rt==="income"?1:-1;
+        return{id:Date.now()+Math.random(),description:item.description,date:item.date,note:item.note||"",
+          accountId:item.accountId,accountName:item.accountName,source:item.source,
+          amount:sign*parseFloat(sp.amount),category:sp.category,subcategory:sp.subcategory,type:rt};
+      });
+      setTransactions(prev=>[...newTxs,...prev]);
+      setReviewSplitMode(false);setReviewSplits([]);
+      advanceReview(item.id);return;
+    }
     const ed=reviewEdit(item);if(!ed.category||!ed.subcategory)return;
     const tax=getTaxonomyEntry(taxonomy,ed.category,ed.subcategory);
     const rt=tax.type||ed.typeFilter,sign=rt==="income"?1:-1;
@@ -1275,7 +1543,6 @@ function App() {
     const saved={...item,category:ed.category,subcategory:ed.subcategory,type:rt,amount:fA};
     delete saved.source;
     setTransactions(prev=>[saved,...prev]);
-    // "Remember" always saves as "auto" — sign will determine type on future imports
     if(reviewRemember){
       const sugs=generatePatternSuggestions(item.description);
       const chosen=sugs[reviewPatternIdx]?.pattern;
@@ -1291,8 +1558,9 @@ function App() {
     setUnmatchedQueue(prev=>prev.filter(x=>x.id!==doneId));
     setReviewIdx(0);setReviewEdits(prev=>{const n={...prev};delete n[doneId];return n;});
     setReviewRemember(false);setReviewPatternIdx(0);
+    setReviewSplitMode(false);setReviewSplits([]);
   }
-  function dismissReviewQueue(){setUnmatchedQueue([]);setReviewEdits({});setReviewIdx(0);setReviewRemember(false);setReviewPatternIdx(0);}
+  function dismissReviewQueue(){setUnmatchedQueue([]);setReviewEdits({});setReviewIdx(0);setReviewRemember(false);setReviewPatternIdx(0);setReviewSplitMode(false);setReviewSplits([]);}
 
   if(!loaded)return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:"#555",fontSize:13,letterSpacing:"0.15em"}}>Loading your data…</div>;
 
@@ -1578,7 +1846,7 @@ function App() {
 
         {/* Tabs */}
         <div style={{display:"flex",gap:4,marginBottom:16,flexWrap:"wrap"}}>
-          {[["transactions","Transactions"],["monthly","Monthly View"],["edit","⚙ Edit"]].map(([key,label])=>(
+          {[["transactions","Transactions"],["monthly","Monthly View"],["budget","Budget"],["edit","⚙ Edit"]].map(([key,label])=>(
             <button key={key} className={"tab "+(activeTab===key?"tab-active":"tab-inactive")} onClick={()=>setActiveTab(key)}>{label}</button>
           ))}
         </div>
@@ -1710,6 +1978,178 @@ function App() {
           </div>
         )}
 
+        {/* ── BUDGET TAB ── */}
+        {activeTab==="budget"&&(()=>{
+          // Build per-category budget map from taxonomy (expense entries only)
+          const budgetMap={};
+          taxonomy.filter(t=>t.type==="expense"||t.type==="notreported").forEach(t=>{
+            if(!budgetMap[t.category])budgetMap[t.category]={budget:0,subs:{}};
+            budgetMap[t.category].budget+=(t.budget||0);
+            budgetMap[t.category].subs[t.subcategory]=(budgetMap[t.category].subs[t.subcategory]||0)+(t.budget||0);
+          });
+          const totalBudget=Object.values(budgetMap).reduce((s,c)=>s+c.budget,0);
+
+          // Actuals for selected month
+          const actualByCat=monthlyStats.byCat; // {cat:{total,subs:{sub:amt}}}
+          const totalSpent=monthlyStats.expenses;
+          const remaining=totalBudget-totalSpent;
+
+          // All cats that either have a budget or have spending this month
+          const allCatKeys=new Set([...Object.keys(budgetMap),...Object.keys(actualByCat)]);
+          const budgetedCats=[],unbudgetedCats=[];
+          allCatKeys.forEach(cat=>{
+            const bud=(budgetMap[cat]?.budget||0);
+            if(bud>0)budgetedCats.push(cat);else unbudgetedCats.push(cat);
+          });
+          budgetedCats.sort((a,b)=>(budgetMap[b]?.budget||0)-(budgetMap[a]?.budget||0));
+          unbudgetedCats.sort((a,b)=>(actualByCat[b]?.total||0)-(actualByCat[a]?.total||0));
+
+          function BudgetRow({cat}){
+            const bud=budgetMap[cat]?.budget||0;
+            const spent=actualByCat[cat]?.total||0;
+            const pct=bud>0?Math.min(spent/bud*100,100):0;
+            const over=bud>0&&spent>bud;
+            const barColor=over?"#f43f5e":pct>80?"#f97316":catColor(cat);
+            const util=bud>0?(spent/bud*100):null;
+            // subcategory rows
+            const subKeys=new Set([
+              ...Object.keys(budgetMap[cat]?.subs||{}),
+              ...Object.keys(actualByCat[cat]?.subs||{}),
+            ]);
+            return(
+              <div style={{marginBottom:20}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{width:8,height:8,borderRadius:"50%",background:catColor(cat),flexShrink:0}}/>
+                    <span style={{fontSize:13,fontWeight:500,color:"#ccc"}}>{cat}</span>
+                    {util!==null&&(
+                      <span style={{fontSize:10,borderRadius:100,padding:"1px 7px",background:"#1e1e1e",color:over?"#f43f5e":pct>80?"#f97316":"#555"}}>
+                        {util.toFixed(0)}%
+                      </span>
+                    )}
+                    {bud===0&&spent>0&&<span style={{fontSize:10,color:"#444",background:"#1a1a1a",borderRadius:100,padding:"1px 7px"}}>no budget</span>}
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0}}>
+                    <span style={{fontSize:13,color:over?"#f43f5e":"#888"}}>{fmt(spent)}</span>
+                    {bud>0&&<span style={{fontSize:11,color:"#383838",marginLeft:6}}>/ {fmt(bud)}</span>}
+                  </div>
+                </div>
+                {bud>0&&(
+                  <div style={{background:"#1a1a1a",borderRadius:4,height:6,marginBottom:10,position:"relative",overflow:"hidden"}}>
+                    <div style={{width:pct+"%",height:"100%",borderRadius:4,background:barColor,transition:"width 0.5s ease"}}/>
+                    {over&&<div style={{position:"absolute",inset:0,borderRadius:4,border:"1px solid #f43f5e55"}}/>}
+                  </div>
+                )}
+                {[...subKeys].sort().map(sub=>{
+                  const sBud=(budgetMap[cat]?.subs[sub]||0);
+                  const sSpent=(actualByCat[cat]?.subs[sub]||0);
+                  const sPct=sBud>0?Math.min(sSpent/sBud*100,100):0;
+                  const sOver=sBud>0&&sSpent>sBud;
+                  return(
+                    <div key={sub} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0 5px 16px",borderLeft:"1px solid "+catColor(cat)+"30",marginBottom:3}}>
+                      <div style={{flex:1,fontSize:11,color:"#555"}}>{sub}</div>
+                      {sBud>0&&(
+                        <div style={{width:80,background:"#1a1a1a",borderRadius:3,height:3,flexShrink:0}}>
+                          <div style={{width:sPct+"%",height:"100%",borderRadius:3,background:sOver?"#f43f5e":sPct>80?"#f97316":catColor(cat),transition:"width 0.4s ease"}}/>
+                        </div>
+                      )}
+                      <div style={{fontSize:11,textAlign:"right",flexShrink:0,minWidth:80}}>
+                        <span style={{color:sOver?"#f43f5e":"#555"}}>{fmt(sSpent)}</span>
+                        {sBud>0&&<span style={{color:"#2e2e2e",marginLeft:4}}>/ {fmt(sBud)}</span>}
+                        {sBud===0&&sSpent>0&&<span style={{color:"#2a2a2a",marginLeft:4,fontSize:10}}>no budget</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          }
+
+          return(
+            <div className="fade-in">
+              {/* Month nav */}
+              <div className="card" style={{padding:"14px 20px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
+                <button className="btn-icon" onClick={()=>shiftMonth(-1)}>←</button>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <select className="month-select" value={monthYear.month} onChange={e=>setMonthYear(mv=>({...mv,month:parseInt(e.target.value)}))}>
+                    {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
+                  </select>
+                  <select className="month-select" value={monthYear.year} onChange={e=>setMonthYear(mv=>({...mv,year:parseInt(e.target.value)}))}>
+                    {availableYears.map(y=><option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+                <button className="btn-icon" onClick={()=>shiftMonth(1)}>→</button>
+              </div>
+
+              {/* Summary stat cards */}
+              <div className="grid-3" style={{marginBottom:16}}>
+                {[
+                  {key:"budgeted",  label:"Budgeted",    display:fmt(totalBudget), color:"#e8e0d5"},
+                  {key:"spent",     label:"Spent",       display:fmt(totalSpent),  color:totalSpent>totalBudget&&totalBudget>0?"#f43f5e":"#f97316"},
+                  {key:"remaining", label:remaining>=0?"Remaining":"Over Budget", display:fmt(Math.abs(remaining)), color:remaining>=0?"#10b981":"#f43f5e"},
+                ].map(s=>(
+                  <div key={s.key} className="stat-card">
+                    <div style={{fontSize:10,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:5}}>{s.label}</div>
+                    <div style={{fontSize:"clamp(12px,2.2vw,18px)",fontWeight:500,color:s.color}}>{s.display}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Overall progress bar */}
+              {totalBudget>0&&(
+                <div className="card" style={{padding:"16px 20px",marginBottom:16}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <div style={{fontSize:10,letterSpacing:"0.14em",color:"#444",textTransform:"uppercase"}}>Overall Budget Usage</div>
+                    <div style={{fontSize:12,color:totalSpent>totalBudget?"#f43f5e":"#666"}}>
+                      {totalBudget>0?((totalSpent/totalBudget)*100).toFixed(1):0}%
+                    </div>
+                  </div>
+                  <div style={{background:"#1a1a1a",borderRadius:6,height:10,position:"relative",overflow:"hidden"}}>
+                    <div style={{width:(Math.min(totalSpent/totalBudget,1)*100)+"%",height:"100%",borderRadius:6,
+                      background:totalSpent>totalBudget?"#f43f5e":totalSpent/totalBudget>0.8?"#f97316":"#10b981",
+                      transition:"width 0.6s ease"}}/>
+                  </div>
+                  {totalSpent>totalBudget&&(
+                    <div style={{fontSize:11,color:"#f43f5e",marginTop:8}}>⚠ Over budget by {fmt(totalSpent-totalBudget)}</div>
+                  )}
+                </div>
+              )}
+
+              {/* No budgets set at all */}
+              {totalBudget===0&&(
+                <div className="card" style={{padding:"28px 24px",marginBottom:16,textAlign:"center"}}>
+                  <div style={{fontSize:22,marginBottom:10}}>📋</div>
+                  <div style={{fontSize:13,color:"#666",marginBottom:12,lineHeight:1.7}}>No budgets have been set yet.<br/>Add budget amounts to your categories to track spending here.</div>
+                  <button className="btn btn-secondary" style={{padding:"8px 20px",fontSize:12}} onClick={()=>{setActiveTab("edit");setEditSub("categories");}}>Set Budgets in Categories →</button>
+                </div>
+              )}
+
+              {/* Budgeted categories */}
+              {budgetedCats.length>0&&(
+                <div className="card" style={{padding:"18px 20px",marginBottom:16}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                    <div className="sl" style={{marginBottom:0}}>Budgeted Categories</div>
+                    <button className="btn-ghost" style={{fontSize:10,padding:"3px 10px"}} onClick={()=>{setActiveTab("edit");setEditSub("categories");}}>Edit budgets →</button>
+                  </div>
+                  {budgetedCats.map(cat=><BudgetRow key={cat} cat={cat}/>)}
+                </div>
+              )}
+
+              {/* Unbudgeted categories with spending */}
+              {unbudgetedCats.filter(c=>actualByCat[c]?.total>0).length>0&&(
+                <div className="card" style={{padding:"18px 20px",marginBottom:16}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                    <div className="sl" style={{marginBottom:0}}>Spending Without a Budget</div>
+                    <button className="btn-ghost" style={{fontSize:10,padding:"3px 10px"}} onClick={()=>{setActiveTab("edit");setEditSub("categories");}}>Set budgets →</button>
+                  </div>
+                  <div style={{fontSize:11,color:"#3a3a3a",marginBottom:14}}>These categories have spending this month but no budget assigned.</div>
+                  {unbudgetedCats.filter(c=>actualByCat[c]?.total>0).map(cat=><BudgetRow key={cat} cat={cat}/>)}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* ── EDIT TAB ── */}
         {activeTab==="edit"&&(
           <div className="fade-in">
@@ -1724,145 +2164,19 @@ function App() {
             )}
 
             {editSub==="categories"&&(
-              <div className="card fade-in" style={{marginBottom:20}}>
-                <div style={{padding:"16px 16px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div className="sl" style={{marginBottom:0}}>Categories &amp; Subcategories <span style={{color:"#333",fontWeight:400}}>({taxonomy.length})</span></div>
-                  <button className="btn-reset" onClick={resetTaxonomy}>↺ Reset to defaults</button>
-                </div>
-                <div style={{padding:"0 12px 8px",borderBottom:"1px solid #1e1e1e"}}>
-                  <div style={{display:"flex",gap:8,paddingLeft:20}}>
-                    <div style={{flex:"0 0 18px"}}/>
-                    {["Subcategory","Type","Budget"].map((h,i)=><div key={h} style={{flex:i===1?"0 0 90px":i===2?"0 0 70px":"1 1 120px",fontSize:9,color:"#333",letterSpacing:"0.12em",textTransform:"uppercase",textAlign:i===2?"right":undefined}}>{h}</div>)}
-                    <div style={{flex:"0 0 28px"}}/>
-                  </div>
-                  <div style={{fontSize:9,color:"#2a2a2a",marginTop:4,letterSpacing:"0.05em",paddingLeft:20}}>↑ click any field to edit inline &nbsp;·&nbsp; ⠿ drag to reorder within group</div>
-                </div>
-                <div style={{maxHeight:500,overflowY:"auto"}}>
-                  {(()=>{
-                    // Build ordered groups preserving flat indices
-                    const groups=[];
-                    const seen={};
-                    taxonomy.forEach((t,idx)=>{
-                      if(!seen[t.category]){seen[t.category]=true;groups.push({cat:t.category,entries:[]});}
-                      groups[groups.length-1].entries.push({t,idx});
-                    });
-                    return groups.map(({cat,entries})=>{
-                      const isCollapsed=collapsedCats.has(cat);
-                      const toggleCollapse=()=>setCollapsedCats(prev=>{const n=new Set(prev);n.has(cat)?n.delete(cat):n.add(cat);return n;});
-                      const catBudget=entries.reduce((s,{t})=>s+(t.budget||0),0);
-                      return(
-                        <div key={cat}>
-                          {/* Group header */}
-                          <div onClick={toggleCollapse} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 12px",background:"#111",borderBottom:"1px solid #1e1e1e",borderTop:"1px solid #1e1e1e",cursor:"pointer",userSelect:"none"}} className="group-header">
-                            <div style={{width:8,height:8,borderRadius:"50%",background:catColor(cat),flexShrink:0}}/>
-                            <div style={{flex:1,fontSize:11,fontWeight:500,color:"#bbb",letterSpacing:"0.04em"}}>{cat}</div>
-                            <div style={{fontSize:10,color:"#444"}}>{entries.length} {entries.length===1?"entry":"entries"}</div>
-                            {catBudget>0&&<div style={{fontSize:10,color:"#555"}}>{fmt(catBudget)}</div>}
-                            {cat!=="Not Assigned"&&(
-                              <button
-                                className="btn-danger"
-                                style={{fontSize:13,padding:"2px 7px",opacity:0.5}}
-                                title={`Remove entire "${cat}" category`}
-                                onClick={e=>{e.stopPropagation();removeCategoryGroup(cat);}}>
-                                ×
-                              </button>
-                            )}
-                            <div style={{fontSize:11,color:"#333",width:14,textAlign:"center"}}>{isCollapsed?"▶":"▼"}</div>
-                          </div>
-                          {/* Entries */}
-                          {!isCollapsed&&entries.map(({t,idx})=>{
-                            const isEd=editingTaxIdx===idx,ev=editingTaxVal;
-                            const cellStyle={cursor:"pointer",borderRadius:4,padding:"3px 6px",transition:"background 0.12s"};
-                            const isDragOver=dragOverTaxIdx===idx&&dragTaxIdx!==idx;
-                            const isDragging=dragTaxIdx===idx;
-                            return(
-                              <div key={idx} className="edit-row"
-                                draggable={!isEd}
-                                onDragStart={()=>{setDragTaxIdx(idx);setEditingTaxIdx(null);setEditingTaxVal({});}}
-                                onDragOver={e=>{e.preventDefault();setDragOverTaxIdx(idx);}}
-                                onDragLeave={()=>{if(dragOverTaxIdx===idx)setDragOverTaxIdx(null);}}
-                                onDrop={()=>dropTax(idx)}
-                                onDragEnd={()=>{setDragTaxIdx(null);setDragOverTaxIdx(null);}}
-                                style={{paddingLeft:20,background:isDragOver?"#1f1a2e":isEd?"#1e1e1e":"",flexWrap:isEd?"wrap":"nowrap",alignItems:isEd?"flex-start":"center",gap:isEd?6:8,opacity:isDragging?0.4:1,borderTop:isDragOver?"2px solid #8b5cf6":"",transition:"border 0.1s,opacity 0.1s"}}>
-                                {!isEd&&<div style={{flex:"0 0 18px",cursor:"grab",color:"#2e2e2e",fontSize:13,userSelect:"none",textAlign:"center"}} title="Drag to reorder">⠿</div>}
-                                {isEd?(
-                                  <div style={{width:"100%",display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                                    <div>
-                                      <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Category</div>
-                                      <input className="input-sm" list="cat-list-edit" value={ev.category} onChange={e=>setEditingTaxVal(f=>({...f,category:e.target.value}))} onKeyDown={e=>{if(e.key==="Escape"){setEditingTaxIdx(null);setEditingTaxVal({});}}} style={{width:"100%"}} autoFocus/>
-                                      <datalist id="cat-list-edit">{allCats.map(c=><option key={c} value={c}/>)}</datalist>
-                                    </div>
-                                    <div>
-                                      <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Subcategory</div>
-                                      <input className="input-sm" list="sub-list-edit" value={ev.subcategory} onChange={e=>setEditingTaxVal(f=>({...f,subcategory:e.target.value}))} onKeyDown={e=>{if(e.key==="Escape"){setEditingTaxIdx(null);setEditingTaxVal({});}}} style={{width:"100%"}}/>
-                                      <datalist id="sub-list-edit">{editingTaxSubcats.map(s=><option key={s} value={s}/>)}</datalist>
-                                    </div>
-                                    <div>
-                                      <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Type</div>
-                                      <select className="input-sm" value={ev.type} onChange={e=>setEditingTaxVal(f=>({...f,type:e.target.value}))} style={{width:"100%"}}>
-                                        <option value="expense">Expense</option><option value="income">Income</option><option value="notreported">Not Reported</option>
-                                      </select>
-                                    </div>
-                                    <div>
-                                      <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Budget (CAD)</div>
-                                      <input className="input-sm" type="number" value={ev.budget} onChange={e=>setEditingTaxVal(f=>({...f,budget:e.target.value}))} onKeyDown={e=>{if(e.key==="Escape"){setEditingTaxIdx(null);setEditingTaxVal({});}}} style={{width:"100%"}}/>
-                                    </div>
-                                    <div style={{gridColumn:"1 / -1",display:"flex",gap:8,marginTop:2}}>
-                                      <button className="btn btn-primary" style={{padding:"7px 18px",fontSize:12}} onClick={commitEditTax}>Save</button>
-                                      <button className="btn-ghost" onClick={()=>{setEditingTaxIdx(null);setEditingTaxVal({});}}>Cancel</button>
-                                    </div>
-                                  </div>
-                                ):(<>
-                                  <div style={{flex:"0 0 18px",display:"flex",alignItems:"center"}}><div style={{width:6,height:6,borderRadius:"50%",background:catColor(t.category),opacity:0.5}}/></div>
-                                  <div style={{...cellStyle,flex:"1 1 120px",fontSize:12,color:"#888"}} onClick={()=>startEditTax(idx)}>{t.subcategory}</div>
-                                  <div style={{flex:"0 0 90px",cursor:"pointer"}} onClick={()=>startEditTax(idx)}>
-                                    <span className="tag" style={{background:(TYPE_STYLE[t.type]||TYPE_STYLE.notreported).bg,color:(TYPE_STYLE[t.type]||TYPE_STYLE.notreported).color,fontSize:9}}>{TYPE_LABEL[t.type]||t.type}</span>
-                                  </div>
-                                  <div style={{...cellStyle,flex:"0 0 70px",fontSize:11,color:"#555",textAlign:"right"}} onClick={()=>startEditTax(idx)}>{t.budget>0?fmt(t.budget):<span style={{color:"#2a2a2a"}}>—</span>}</div>
-                                  <div style={{flex:"0 0 28px",textAlign:"right"}}><button className="btn-danger" style={{fontSize:14}} onClick={()=>removeTaxEntry(idx)}>×</button></div>
-                                </>)}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-                <div className="add-form">
-                  <div style={{fontSize:9,letterSpacing:"0.15em",color:"#444",textTransform:"uppercase",marginBottom:10}}>Add Entry</div>
-                  <div style={{display:"grid",gap:8}}>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                      <div>
-                        <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Category</div>
-                        <input className="input-sm" list="cat-list" placeholder="e.g. Groceries" value={newTax.category} onChange={e=>setNewTax(f=>({...f,category:e.target.value,subcategory:""}))}/>
-                        <datalist id="cat-list">{allCats.map(c=><option key={c} value={c}/>)}</datalist>
-                      </div>
-                      <div>
-                        <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Subcategory</div>
-                        <input className="input-sm" list="sub-list" placeholder="e.g. Weekly Shop" value={newTax.subcategory} onChange={e=>setNewTax(f=>({...f,subcategory:e.target.value}))}/>
-                        <datalist id="sub-list">{taxSubcats.map(s=><option key={s} value={s}/>)}</datalist>
-                      </div>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"end"}}>
-                      <div>
-                        <div style={{fontSize:9,color:"#444",marginBottom:6,letterSpacing:"0.1em",textTransform:"uppercase"}}>Type</div>
-                        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-                          {["expense","income","notreported"].map(tf=>(
-                            <button key={tf} className={"btn chip-sm "+(newTax.type===tf?"chip-active":"chip-inactive")} onClick={()=>setNewTax(f=>({...f,type:tf}))} style={{fontSize:10,padding:"3px 10px"}}>
-                              {tf==="notreported"?"Not Rep.":tf[0].toUpperCase()+tf.slice(1)}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{fontSize:9,color:"#444",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Budget (CAD)</div>
-                        <input className="input-sm" type="number" placeholder="0.00" value={newTax.budget} onChange={e=>setNewTax(f=>({...f,budget:e.target.value}))}/>
-                      </div>
-                    </div>
-                    <button className="btn btn-primary" onClick={addTaxEntry} style={{width:"100%",padding:"9px"}}>+ Add Category Entry</button>
-                  </div>
-                </div>
+              <div className="fade-in" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,alignItems:"start",marginBottom:4}}>
+                <TaxPanel panelType="expense"
+                  taxonomy={taxonomy} collapsedCats={collapsedCats} setCollapsedCats={setCollapsedCats}
+                  editingTaxIdx={editingTaxIdx} editingTaxVal={editingTaxVal} setEditingTaxIdx={setEditingTaxIdx} setEditingTaxVal={setEditingTaxVal} editingTaxSubcats={editingTaxSubcats}
+                  dragTaxIdx={dragTaxIdx} setDragTaxIdx={setDragTaxIdx} dragOverTaxIdx={dragOverTaxIdx} setDragOverTaxIdx={setDragOverTaxIdx}
+                  dropTax={dropTax} startEditTax={startEditTax} commitEditTax={commitEditTax} removeTaxEntry={removeTaxEntry} removeCategoryGroup={removeCategoryGroup}
+                  newTax={newTax} setNewTax={setNewTax} taxSubcats={taxSubcats} allCats={allCats} addTaxEntry={addTaxEntry} resetTaxonomy={resetTaxonomy}/>
+                <TaxPanel panelType="income"
+                  taxonomy={taxonomy} collapsedCats={collapsedCats} setCollapsedCats={setCollapsedCats}
+                  editingTaxIdx={editingTaxIdx} editingTaxVal={editingTaxVal} setEditingTaxIdx={setEditingTaxIdx} setEditingTaxVal={setEditingTaxVal} editingTaxSubcats={editingTaxSubcats}
+                  dragTaxIdx={dragTaxIdx} setDragTaxIdx={setDragTaxIdx} dragOverTaxIdx={dragOverTaxIdx} setDragOverTaxIdx={setDragOverTaxIdx}
+                  dropTax={dropTax} startEditTax={startEditTax} commitEditTax={commitEditTax} removeTaxEntry={removeTaxEntry} removeCategoryGroup={removeCategoryGroup}
+                  newTax={newTax} setNewTax={setNewTax} taxSubcats={taxSubcats} allCats={allCats} addTaxEntry={addTaxEntry} resetTaxonomy={resetTaxonomy}/>
               </div>
             )}
 
@@ -2072,7 +2386,11 @@ function App() {
       {editingTx&&(()=>{
         const editCats=editForm.typeFilter==="income"?incomeCats:expenseCats;
         const editSubcats=editForm.category?getSubcats(taxonomy,editForm.category,editForm.typeFilter):[];
-        const canSave=editForm.description&&editForm.amount&&editForm.category&&editForm.subcategory;
+        const splitTotal=parseFloat(editForm.amount)||0;
+        const splitSum=editSplits.reduce((s,sp)=>s+(parseFloat(sp.amount)||0),0);
+        const splitBalanced=Math.abs(splitSum-splitTotal)<0.005;
+        const splitComplete=editSplits.length>=2&&editSplits.every(sp=>sp.category&&sp.subcategory)&&splitBalanced;
+        const canSave=editSplitMode?splitComplete:(editForm.description&&editForm.amount&&editForm.category&&editForm.subcategory);
         return(
           <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)closeEditTx();}}>
             <div className="modal-box" style={{background:"#181818",border:"1px solid #2e2e2e",borderRadius:16,width:"100%",maxWidth:500,overflow:"hidden",boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
@@ -2111,17 +2429,42 @@ function App() {
                 <div className="grid-2">
                   <div>
                     <div style={{fontSize:9,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:6}}>Category</div>
-                    <select className="input" value={editForm.category||""} onChange={e=>handleEditCatChange(e.target.value)}>
+                    <select className="input" value={editForm.category||""} onChange={e=>handleEditCatChange(e.target.value)} disabled={editSplitMode}>
                       <option value="">— Select —</option>{editCats.map(c=><option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                   <div>
                     <div style={{fontSize:9,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:6}}>Subcategory</div>
-                    <select className="input" value={editForm.subcategory||""} disabled={!editForm.category} onChange={e=>setEditForm(f=>({...f,subcategory:e.target.value}))}>
+                    <select className="input" value={editForm.subcategory||""} disabled={!editForm.category||editSplitMode} onChange={e=>setEditForm(f=>({...f,subcategory:e.target.value}))}>
                       <option value="">— Select —</option>{editSubcats.map(s=><option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
                 </div>
+                {/* Split toggle */}
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"#111",borderRadius:8,border:"1px solid "+(editSplitMode?"#8b5cf644":"#1e1e1e")}}>
+                  <div>
+                    <div style={{fontSize:11,color:editSplitMode?"#a78bfa":"#666",fontWeight:500}}>⊕ Split transaction</div>
+                    <div style={{fontSize:10,color:"#3a3a3a",marginTop:2}}>Divide this amount across multiple categories</div>
+                  </div>
+                  <button onClick={()=>{
+                    if(!editSplitMode){
+                      const half=(parseFloat(editForm.amount)||0);
+                      setEditSplits([
+                        {id:Date.now()+1,amount:half.toFixed(2),category:editForm.category||"",subcategory:editForm.subcategory||""},
+                        {id:Date.now()+2,amount:"",category:"",subcategory:""},
+                      ]);
+                    }
+                    setEditSplitMode(v=>!v);
+                  }} style={{padding:"5px 14px",borderRadius:8,border:"1px solid "+(editSplitMode?"#8b5cf688":"#2a2a2a"),background:editSplitMode?"#8b5cf618":"transparent",color:editSplitMode?"#a78bfa":"#555",fontSize:11,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
+                    {editSplitMode?"✕ Cancel split":"Split"}
+                  </button>
+                </div>
+                {editSplitMode&&(
+                  <div style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:8,padding:"12px 14px"}}>
+                    <SplitEditor total={parseFloat(editForm.amount)||0} splits={editSplits} onChange={setEditSplits}
+                      taxonomy={taxonomy} cats={editCats} typeFilter={editForm.typeFilter}/>
+                  </div>
+                )}
                 <div>
                   <div style={{fontSize:9,letterSpacing:"0.12em",color:"#444",textTransform:"uppercase",marginBottom:6}}>Note</div>
                   <input className="input" placeholder="Optional note…" value={editForm.note||""} onChange={e=>setEditForm(f=>({...f,note:e.target.value}))}/>
@@ -2203,18 +2546,48 @@ function App() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div>
                     <div style={{fontSize:9,color:"#444",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>Category</div>
-                    <select className="input" value={ed.category} onChange={e=>{const cat=e.target.value,subs=cat?getSubcats(taxonomy,cat,ed.typeFilter):[];setReviewEdit(item,{category:cat,subcategory:subs[0]||""});}}>
+                    <select className="input" value={ed.category} disabled={reviewSplitMode} onChange={e=>{const cat=e.target.value,subs=cat?getSubcats(taxonomy,cat,ed.typeFilter):[];setReviewEdit(item,{category:cat,subcategory:subs[0]||""});}}>
                       <option value="">— Select —</option>{reviewCats.map(c=><option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                   <div>
                     <div style={{fontSize:9,color:"#444",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>Subcategory</div>
-                    <select className="input" value={ed.subcategory} disabled={!ed.category} onChange={e=>setReviewEdit(item,{subcategory:e.target.value})}>
+                    <select className="input" value={ed.subcategory} disabled={!ed.category||reviewSplitMode} onChange={e=>setReviewEdit(item,{subcategory:e.target.value})}>
                       <option value="">— Select —</option>{reviewSubcats.map(s=><option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
                 </div>
-                {readyToSave&&(
+                {/* Split toggle */}
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"#111",borderRadius:8,border:"1px solid "+(reviewSplitMode?"#8b5cf644":"#1e1e1e")}}>
+                  <div>
+                    <div style={{fontSize:11,color:reviewSplitMode?"#a78bfa":"#666",fontWeight:500}}>⊕ Split transaction</div>
+                    <div style={{fontSize:10,color:"#3a3a3a",marginTop:2}}>Divide across multiple categories</div>
+                  </div>
+                  <button onClick={()=>{
+                    if(!reviewSplitMode){
+                      const total=Math.abs(item.amount);
+                      setReviewSplits([
+                        {id:Date.now()+1,amount:total.toFixed(2),category:ed.category||"",subcategory:ed.subcategory||""},
+                        {id:Date.now()+2,amount:"",category:"",subcategory:""},
+                      ]);
+                    }
+                    setReviewSplitMode(v=>!v);
+                  }} style={{padding:"5px 14px",borderRadius:8,border:"1px solid "+(reviewSplitMode?"#8b5cf688":"#2a2a2a"),background:reviewSplitMode?"#8b5cf618":"transparent",color:reviewSplitMode?"#a78bfa":"#555",fontSize:11,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
+                    {reviewSplitMode?"✕ Cancel":"Split"}
+                  </button>
+                </div>
+                {reviewSplitMode&&(()=>{
+                  const rSplitTotal=Math.abs(item.amount);
+                  const rSplitSum=reviewSplits.reduce((s,sp)=>s+(parseFloat(sp.amount)||0),0);
+                  const rSplitReady=reviewSplits.length>=2&&reviewSplits.every(sp=>sp.category&&sp.subcategory)&&Math.abs(rSplitSum-rSplitTotal)<0.005;
+                  return(
+                    <div style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:8,padding:"12px 14px"}}>
+                      <SplitEditor total={rSplitTotal} splits={reviewSplits} onChange={setReviewSplits}
+                        taxonomy={taxonomy} cats={reviewCats} typeFilter={ed.typeFilter}/>
+                    </div>
+                  );
+                })()}
+                {!reviewSplitMode&&readyToSave&&(
                   <div className="remember-box">
                     <label style={{display:"flex",alignItems:"center",gap:9,cursor:"pointer"}}>
                       <input type="checkbox" checked={reviewRemember} onChange={e=>{setReviewRemember(e.target.checked);setReviewPatternIdx(0);}} style={{accentColor:"#8b5cf6",width:14,height:14,cursor:"pointer"}}/>
@@ -2241,10 +2614,19 @@ function App() {
                     )}
                   </div>
                 )}
-                <div style={{display:"flex",gap:10}}>
-                  <button className="btn btn-primary" style={{flex:1,padding:12,opacity:readyToSave?1:0.4,cursor:readyToSave?"pointer":"not-allowed"}} onClick={()=>commitReviewItem(item)}>Save &amp; Next</button>
-                  <button className="btn-ghost" style={{padding:"10px 18px"}} onClick={()=>skipReviewItem(item)}>Skip</button>
-                </div>
+                {(()=>{
+                  const rSplitSum=reviewSplits.reduce((s,sp)=>s+(parseFloat(sp.amount)||0),0);
+                  const rSplitReady=reviewSplitMode&&reviewSplits.length>=2&&reviewSplits.every(sp=>sp.category&&sp.subcategory)&&Math.abs(rSplitSum-Math.abs(item.amount))<0.005;
+                  const canSaveReview=reviewSplitMode?rSplitReady:readyToSave;
+                  return(
+                    <div style={{display:"flex",gap:10}}>
+                      <button className="btn btn-primary" style={{flex:1,padding:12,opacity:canSaveReview?1:0.4,cursor:canSaveReview?"pointer":"not-allowed"}} onClick={()=>commitReviewItem(item)}>
+                        {reviewSplitMode?"Split &amp; Save":"Save &amp; Next"}
+                      </button>
+                      <button className="btn-ghost" style={{padding:"10px 18px"}} onClick={()=>skipReviewItem(item)}>Skip</button>
+                    </div>
+                  );
+                })()}
                 {total>1&&(
                   <div style={{display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap"}}>
                     {unmatchedQueue.map((q,i)=>(
