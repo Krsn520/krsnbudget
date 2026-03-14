@@ -1021,6 +1021,7 @@ function App() {
   const undoTimerRef     = useRef(null);
   const ruleToastTimer   = useRef(null);
   const fileRef          = useRef(null);
+  const descriptionRef   = useRef(null);
 
   function showConfirm(message, detail, confirmLabel, danger, onConfirm) {
     setConfirmModal({ message, detail, confirmLabel:confirmLabel||"Confirm", danger:!!danger, onConfirm });
@@ -1092,6 +1093,29 @@ function App() {
   useEffect(()=>{if(!loaded)return;try{localStorage.setItem(TAXONOMY_KEY,JSON.stringify(taxonomy));}catch(e){}},[taxonomy,loaded]);
   useEffect(()=>{if(!loaded)return;try{localStorage.setItem(RULES_KEY,JSON.stringify(descRules));}catch(e){}},[descRules,loaded]);
   useEffect(()=>{if(!loaded)return;try{localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));}catch(e){}},[accounts,loaded]);
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  useEffect(()=>{
+    function onKey(e) {
+      if (e.key === "Escape") {
+        if (confirmModal)            { setConfirmModal(null); return; }
+        if (createRuleTx)            { setCreateRuleTx(null); return; }
+        if (editingTx)               { closeEditTx(); return; }
+        if (unmatchedQueue.length>0) { dismissReviewQueue(); return; }
+        if (isNewUser)               return; // don't close onboarding
+        if (showForm)                { setShowForm(false); setAmountError(""); setDupWarning(false); return; }
+        if (showImport)              { setShowImport(false); resetImport(); return; }
+        if (showAddMenu)             { setShowAddMenu(false); return; }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirmModal, createRuleTx, editingTx, unmatchedQueue, isNewUser, showForm, showImport, showAddMenu]);
+
+  // ── Auto-focus description when add form opens ────────────────────────────
+  useEffect(()=>{
+    if (showForm) setTimeout(()=>descriptionRef.current?.focus(), 60);
+  }, [showForm]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const expenseCats = useMemo(()=>computeExpenseCats(taxonomy),[taxonomy]);
@@ -1833,13 +1857,13 @@ function App() {
                   </button>
                 ))}
               </div>
-              <input className="input" placeholder="Description" value={form.description} onChange={e=>{setDupWarning(false);setForm(f=>({...f,description:e.target.value}));}}/>
+              <input className="input" placeholder="Description" ref={descriptionRef} value={form.description} onChange={e=>{setDupWarning(false);setForm(f=>({...f,description:e.target.value}));}} onKeyDown={e=>{if(e.key==="Enter")addTransaction();}}/>
               <div className="grid-2">
                 <div>
-                  <input className={"input"+(amountError?" input-error":"")} type="number" placeholder="Amount" min="0.01" max="999999" value={form.amount} onChange={e=>{setAmountError("");setDupWarning(false);setForm(f=>({...f,amount:e.target.value}));}}/>
+                  <input className={"input"+(amountError?" input-error":"")} type="number" placeholder="Amount" min="0.01" max="999999" value={form.amount} onChange={e=>{setAmountError("");setDupWarning(false);setForm(f=>({...f,amount:e.target.value}));}} onKeyDown={e=>{if(e.key==="Enter")addTransaction();}}/>
                   {amountError&&<div style={{fontSize:11,color:"#f43f5e",marginTop:4}}>{amountError}</div>}
                 </div>
-                <input className="input" type="date" value={form.date} onChange={e=>{setDupWarning(false);setForm(f=>({...f,date:e.target.value}));}}/>
+                <input className="input" type="date" value={form.date} onChange={e=>{setDupWarning(false);setForm(f=>({...f,date:e.target.value}));}} onKeyDown={e=>{if(e.key==="Enter")addTransaction();}}/>
               </div>
               <div className="grid-2">
                 <select className="input" value={form.category} onChange={e=>handleCatChange(e.target.value)}>
@@ -1851,7 +1875,7 @@ function App() {
                   {availableSubcats.map(s=><option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
-              <input className="input" placeholder="Note (optional)" value={form.note||""} onChange={e=>setForm(f=>({...f,note:e.target.value}))}/>
+              <input className="input" placeholder="Note (optional)" value={form.note||""} onChange={e=>setForm(f=>({...f,note:e.target.value}))} onKeyDown={e=>{if(e.key==="Enter")addTransaction();}}/>
               {dupWarning&&(
                 <div style={{background:"#f97316"+"18",border:"1px solid #f9731644",borderRadius:8,padding:"10px 14px",fontSize:12,color:"#f97316",lineHeight:1.6}}>
                   ⚠ A transaction with the same description, amount, and date already exists. Add anyway?
@@ -2472,16 +2496,16 @@ function App() {
                 </div>
                 <div>
                   <div style={{fontSize:9,letterSpacing:"0.12em",color:"#737373",textTransform:"uppercase",marginBottom:6}}>Description</div>
-                  <input className="input" value={editForm.description||""} onChange={e=>setEditForm(f=>({...f,description:e.target.value}))}/>
+                  <input className="input" value={editForm.description||""} onChange={e=>setEditForm(f=>({...f,description:e.target.value}))} onKeyDown={e=>{if(e.key==="Enter"&&!editSplitMode)commitEditTx();}}/>
                 </div>
                 <div className="grid-2">
                   <div>
                     <div style={{fontSize:9,letterSpacing:"0.12em",color:"#737373",textTransform:"uppercase",marginBottom:6}}>Amount</div>
-                    <input className="input" type="number" step="0.01" min="0.01" max="999999" value={editForm.amount||""} onChange={e=>setEditForm(f=>({...f,amount:e.target.value}))}/>
+                    <input className="input" type="number" step="0.01" min="0.01" max="999999" value={editForm.amount||""} onChange={e=>setEditForm(f=>({...f,amount:e.target.value}))} onKeyDown={e=>{if(e.key==="Enter"&&!editSplitMode)commitEditTx();}}/>
                   </div>
                   <div>
                     <div style={{fontSize:9,letterSpacing:"0.12em",color:"#737373",textTransform:"uppercase",marginBottom:6}}>Date</div>
-                    <input className="input" type="date" value={editForm.date||""} onChange={e=>setEditForm(f=>({...f,date:e.target.value}))}/>
+                    <input className="input" type="date" value={editForm.date||""} onChange={e=>setEditForm(f=>({...f,date:e.target.value}))} onKeyDown={e=>{if(e.key==="Enter"&&!editSplitMode)commitEditTx();}}/>
                   </div>
                 </div>
                 <div className="grid-2">
@@ -2525,7 +2549,7 @@ function App() {
                 )}
                 <div>
                   <div style={{fontSize:9,letterSpacing:"0.12em",color:"#737373",textTransform:"uppercase",marginBottom:6}}>Note</div>
-                  <input className="input" placeholder="Optional note…" value={editForm.note||""} onChange={e=>setEditForm(f=>({...f,note:e.target.value}))}/>
+                  <input className="input" placeholder="Optional note…" value={editForm.note||""} onChange={e=>setEditForm(f=>({...f,note:e.target.value}))} onKeyDown={e=>{if(e.key==="Enter"&&!editSplitMode)commitEditTx();}}/>
                 </div>
                 {accounts.length>0&&(
                   <div>
