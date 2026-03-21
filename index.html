@@ -687,7 +687,7 @@ function AccountsPanel({ accounts, transactions, addAccount, removeAccount }) {
               <div key={acct.id} className="edit-row" style={{padding:"10px 16px",display:"flex",alignItems:"center",gap:10}}>
                 <div style={{width:8,height:8,borderRadius:"50%",background:meta.color,flexShrink:0}}/>
                 <div style={{flex:1,fontSize:13,color:"#ccc"}}>{acct.name}</div>
-                <div style={{fontSize:10,color:"#737373"}}>{transactions.filter(t=>t.accountId===acct.id).length} tx</div>
+                <div style={{fontSize:10,color:"#737373"}}>{transactions.filter(t=>!t._splitParent&&t.accountId===acct.id).length} tx</div>
                 <button className="btn-danger" style={{fontSize:13,padding:"2px 8px"}} onClick={()=>removeAccount(acct.id)}>×</button>
               </div>
             ))}
@@ -1003,7 +1003,8 @@ function App() {
   const [dragOverTaxIdx, setDragOverTaxIdx] = useState(null);
   const [collapsedCats, setCollapsedCats]   = useState(new Set());
   const [dupWarning, setDupWarning]         = useState(false);
-  const [showDupScanner, setShowDupScanner] = useState(false);
+  const [showDupScanner, setShowDupScanner]   = useState(false);
+  const [showSplitParents, setShowSplitParents] = useState(false);
   const [editSplitMode, setEditSplitMode]   = useState(false);
   const [editSplits, setEditSplits]         = useState([]);
   const [reviewSplitMode, setReviewSplitMode] = useState(false);
@@ -1182,13 +1183,15 @@ function App() {
       const sum=editSplits.reduce((s,sp)=>s+(parseFloat(sp.amount)||0),0);
       if(Math.abs(sum-total)>0.005)return;
       if(!editSplits.every(sp=>sp.category&&sp.subcategory))return;
-      const newTxs=editSplits.map(sp=>{
+      // Ghost the original (keeps it for import dedup but hides it everywhere else)
+      // All splits become new transactions
+      const splitTxs=editSplits.map(sp=>{
         const tax=getTaxonomyEntry(taxonomy,sp.category,sp.subcategory);
         const rt=tax.type||editForm.typeFilter;
         const sign=rt==="income"?1:rt==="notreported"?1:-1;
         return{id:Date.now()+Math.random(),...base,amount:sign*parseFloat(sp.amount),category:sp.category,subcategory:sp.subcategory,type:rt};
       });
-      setTransactions(prev=>[...newTxs,...prev.filter(t=>t.id!==editingTx.id)]);
+      setTransactions(prev=>[...splitTxs,...prev.map(t=>t.id===editingTx.id?{...t,_splitParent:true}:t)]);
       closeEditTx();return;
     }
     if(!editForm.description||!editForm.amount||!editForm.category||!editForm.subcategory)return;
@@ -1326,9 +1329,10 @@ function App() {
   // ── Stats ─────────────────────────────────────────────────────────────────
   function txInMonth(t,m,y){const d=new Date(t.date+"T00:00:00");return d.getMonth()===m&&d.getFullYear()===y;}
   const viewTx = useMemo(()=>{
-    if(selectedAccountId===null) return transactions;
-    if(selectedAccountId==="__unlinked__") return transactions.filter(t=>!t.accountId);
-    return transactions.filter(t=>t.accountId===selectedAccountId);
+    const active=transactions.filter(t=>!t._splitParent);
+    if(selectedAccountId===null) return active;
+    if(selectedAccountId==="__unlinked__") return active.filter(t=>!t.accountId);
+    return active.filter(t=>t.accountId===selectedAccountId);
   },[transactions,selectedAccountId]);
   const monthlyTx    = useMemo(()=>viewTx.filter(t=>txInMonth(t,monthYear.month,monthYear.year)),[viewTx,monthYear]);
   const allStats     = useMemo(()=>calcStats(viewTx),[viewTx]);
@@ -1352,8 +1356,9 @@ function App() {
   function clearFilters(){setSearchQuery("");setAmountMin("");setAmountMax("");setTxPage(0);}
   const hasFilters=!!(searchQuery||amountMin||amountMax);
   function shiftMonth(dir){setMonthYear(mv=>{let m=mv.month+dir,y=mv.year;if(m<0){m=11;y--;}if(m>11){m=0;y++;}return{month:m,year:y};});}
-  const availableYears=useMemo(()=>{const yrs={};transactions.forEach(t=>{yrs[new Date(t.date+"T00:00:00").getFullYear()]=1;});yrs[now.getFullYear()]=1;return Object.keys(yrs).map(Number).sort((a,b)=>b-a);},[transactions]);
-  const dupGroups=useMemo(()=>{const map={};transactions.forEach(t=>{const key=`${t.date}||${Math.abs(t.amount).toFixed(2)}||${t.description.toLowerCase().trim()}`;if(!map[key])map[key]=[];map[key].push(t);});return Object.values(map).filter(g=>g.length>1);},[transactions]);
+  const availableYears=useMemo(()=>{const yrs={};transactions.filter(t=>!t._splitParent).forEach(t=>{yrs[new Date(t.date+"T00:00:00").getFullYear()]=1;});yrs[now.getFullYear()]=1;return Object.keys(yrs).map(Number).sort((a,b)=>b-a);},[transactions]);
+  const dupGroups=useMemo(()=>{const map={};transactions.filter(t=>!t._splitParent).forEach(t=>{const key=`${t.date}||${Math.abs(t.amount).toFixed(2)}||${t.description.toLowerCase().trim()}`;if(!map[key])map[key]=[];map[key].push(t);});return Object.values(map).filter(g=>g.length>1);},[transactions]);
+  const splitParents=useMemo(()=>transactions.filter(t=>t._splitParent).sort((a,b)=>new Date(b.date)-new Date(a.date)),[transactions]);
 
   // ── CSV Export ────────────────────────────────────────────────────────────
   function handleCSVExport(){
@@ -1573,7 +1578,8 @@ function App() {
       if(acctType==="credit")amt=-Math.abs(amt);
       const m=matchDesc(descRules,desc,amt);
       const fA=m.type==="income"?Math.abs(amt):m.type==="expense"?-Math.abs(amt):amt;
-      if(transactions.concat(imp).some(t=>t.date===date&&Math.abs(t.amount)===Math.abs(fA)&&t.description===desc)){dup++;return;}
+      // Dedup check — includes _splitParent ghost records so split transactions never re-import
+      if(transactions.concat(imp).some(t=>t.date===date&&Math.abs(Math.abs(t.amount)-Math.abs(fA))<0.005&&t.description===desc)){dup++;return;}
       const tx={id:Date.now()+Math.random(),description:desc,amount:fA,category:m.category,subcategory:m.subcategory,type:m.type,date,source:acctType,accountId:selectedAccount?selectedAccount.id:null,accountName:selectedAccount?selectedAccount.name:null};
       if(!m.matched)unmatched.push(tx);else imp.push(tx);
     });
@@ -1593,7 +1599,10 @@ function App() {
       const sum=reviewSplits.reduce((s,sp)=>s+(parseFloat(sp.amount)||0),0);
       if(Math.abs(sum-total)>0.005)return;
       if(!reviewSplits.every(sp=>sp.category&&sp.subcategory))return;
-      const newTxs=reviewSplits.map(sp=>{
+      // Ghost the original for import dedup; all splits become new transactions
+      const ghostOriginal={...item,_splitParent:true};
+      delete ghostOriginal.source;
+      const splitTxs=reviewSplits.map(sp=>{
         const tax=getTaxonomyEntry(taxonomy,sp.category,sp.subcategory);
         const rt=tax.type||(item.amount<0?"expense":"income");
         const sign=rt==="income"?1:-1;
@@ -1601,7 +1610,7 @@ function App() {
           accountId:item.accountId,accountName:item.accountName,source:item.source,
           amount:sign*parseFloat(sp.amount),category:sp.category,subcategory:sp.subcategory,type:rt};
       });
-      setTransactions(prev=>[...newTxs,...prev]);
+      setTransactions(prev=>[ghostOriginal,...splitTxs,...prev]);
       setReviewSplitMode(false);setReviewSplits([]);
       advanceReview(item.id);return;
     }
@@ -1890,7 +1899,7 @@ function App() {
 
         {/* Account selector bar */}
         {(()=>{
-          const unlinkedCount=transactions.filter(t=>!t.accountId).length;
+          const unlinkedCount=transactions.filter(t=>!t._splitParent&&!t.accountId).length;
           const pills=[{id:null,label:"All Accounts",color:"#e8e0d5",icon:"◈"}];
           ["chequing","savings","credit"].forEach(type=>{
             accounts.filter(a=>a.type===type).forEach(a=>{
@@ -2386,12 +2395,21 @@ function App() {
                     :<div style={{fontSize:11,color:"#10b981"}}>✓ No duplicates detected</div>
                   }
                 </div>
-                {dupGroups.length>0&&(
-                  <button className="btn-ghost" style={{fontSize:10}} onClick={()=>setShowDupScanner(v=>!v)}>
-                    {showDupScanner?"Hide":"Review"}
-                  </button>
-                )}
+                <div style={{display:"flex",gap:6}}>
+                  {splitParents.length>0&&(
+                    <button className="btn-ghost" style={{fontSize:10,borderColor:showSplitParents?"#8b5cf688":"#2a2a2a",color:showSplitParents?"#a78bfa":"#888"}} onClick={()=>{setShowSplitParents(v=>!v);setShowDupScanner(false);}}>
+                      ⊕ Split Origins ({splitParents.length})
+                    </button>
+                  )}
+                  {dupGroups.length>0&&(
+                    <button className="btn-ghost" style={{fontSize:10}} onClick={()=>{setShowDupScanner(v=>!v);setShowSplitParents(false);}}>
+                      {showDupScanner?"Hide":"Review"}
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {/* Duplicate groups */}
               {showDupScanner&&dupGroups.length>0&&(
                 <div style={{borderTop:"1px solid #1e1e1e"}}>
                   {dupGroups.map((group,gi)=>(
@@ -2410,6 +2428,35 @@ function App() {
                           <button className="btn-danger" style={{fontSize:14,flexShrink:0}} title="Delete this transaction" onClick={()=>showConfirm("Delete this transaction?",`"${t.description}" on ${t.date} for ${fmt(Math.abs(t.amount))}`,"Delete",true,()=>removeTx(t.id))}>×</button>
                         </div>
                       ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Split origin ghosts */}
+              {showSplitParents&&splitParents.length>0&&(
+                <div style={{borderTop:"1px solid #1e1e1e"}}>
+                  <div style={{padding:"10px 16px 8px",fontSize:11,color:"#737373",lineHeight:1.7,borderBottom:"1px solid #141414"}}>
+                    These are the original transactions before they were split. They are invisible everywhere else and exist only to prevent duplicate imports.
+                    You can safely delete one if you are certain you will never re-import a statement that contains it.
+                  </div>
+                  {splitParents.map(t=>(
+                    <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:"1px solid #141414"}}>
+                      <div style={{width:7,height:7,borderRadius:"50%",background:"#3a3a3a",flexShrink:0}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,color:"#777",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.description}</div>
+                        <div style={{display:"flex",gap:6,marginTop:3,flexWrap:"wrap",alignItems:"center"}}>
+                          <span style={{fontSize:10,color:"#555"}}>{t.date}</span>
+                          {t.accountName&&<span style={{fontSize:10,color:"#555",background:"#1a1a1a",borderRadius:4,padding:"1px 6px"}}>{t.accountName}</span>}
+                          <span style={{fontSize:9,color:"#8b5cf6",background:"#8b5cf618",borderRadius:100,padding:"1px 7px",letterSpacing:"0.05em"}}>split origin</span>
+                        </div>
+                      </div>
+                      <div style={{fontSize:12,color:"#555",whiteSpace:"nowrap",flexShrink:0}}>{fmt(Math.abs(t.amount))}</div>
+                      <button className="btn-danger" style={{fontSize:14,flexShrink:0}} title="Permanently delete this split origin" onClick={()=>showConfirm(
+                        "Delete this split origin?",
+                        `"${t.description}" on ${t.date} for ${fmt(Math.abs(t.amount))}.\n\nWarning: if you re-import a statement containing this transaction, it will no longer be blocked as a duplicate.`,
+                        "Delete",true,()=>removeTx(t.id)
+                      )}>×</button>
                     </div>
                   ))}
                 </div>
