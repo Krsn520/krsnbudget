@@ -150,17 +150,16 @@ function matchDesc(rules, desc, amountSign) {
   for (const r of rules) {
     try {
       if (new RegExp(r.pattern, "i").test(desc)) {
-        // "auto" = let the sign decide; explicit types are honoured as-is
         const resolvedType = r.type === "auto"
           ? (amountSign >= 0 ? "income" : "expense")
           : r.type;
-        return { category: r.category, subcategory: r.subcategory, type: resolvedType, matched: true };
+        return { category: r.category, subcategory: r.subcategory, type: resolvedType, nickname: r.nickname||"", matched: true };
       }
     } catch(e) {}
   }
   return amountSign >= 0
-    ? { category:"Not Assigned", subcategory:"Not Assigned", type:"income",  matched:false }
-    : { category:"Not Assigned", subcategory:"Not Assigned", type:"expense", matched:false };
+    ? { category:"Not Assigned", subcategory:"Not Assigned", type:"income",  nickname:"", matched:false }
+    : { category:"Not Assigned", subcategory:"Not Assigned", type:"expense", nickname:"", matched:false };
 }
 
 function parseDate(raw) {
@@ -269,7 +268,7 @@ const SEED = [
 const BLANK      = { description:"", amount:"", typeFilter:"expense", category:"", subcategory:"", date:new Date().toISOString().split("T")[0], note:"" };
 const BLANK_TAX  = { category:"", subcategory:"", type:"expense", budget:0 };
 // Default rule type is now "auto"
-const BLANK_RULE = { pattern:"", category:"", subcategory:"", type:"auto" };
+const BLANK_RULE = { pattern:"", category:"", subcategory:"", type:"auto", nickname:"" };
 
 // ── ConfirmModal ──────────────────────────────────────────────────────────────
 function ConfirmModal({ message, detail, confirmLabel="Confirm", danger=false, onConfirm, onCancel }) {
@@ -321,6 +320,7 @@ function CreateRuleModal({ tx, taxonomy, onSave, onCancel }) {
   const [ruleType,      setRuleType]      = useState("auto");
   const [category,      setCategory]      = useState(tx.category);
   const [subcategory,   setSubcategory]   = useState(tx.subcategory);
+  const [nickname,      setNickname]      = useState(tx.nickname||"");
   const [patternError,  setPatternError]  = useState("");
 
   const pattern  = useCustom ? customPattern : (suggestions[patternIdx]?.pattern || "");
@@ -341,7 +341,7 @@ function CreateRuleModal({ tx, taxonomy, onSave, onCancel }) {
     if (!p) { setPatternError("A pattern is required."); return; }
     if (!isSafePattern(p)) { setPatternError("Invalid or unsafe pattern. Check for syntax errors or nested quantifiers."); return; }
     if (!category || !subcategory) return;
-    onSave({ pattern: p, category, subcategory, type: ruleType });
+    onSave({ pattern: p, category, subcategory, type: ruleType, nickname: nickname.trim() });
   }
 
   return (
@@ -407,6 +407,16 @@ function CreateRuleModal({ tx, taxonomy, onSave, onCancel }) {
             </div>
           </div>
 
+          {/* Nickname */}
+          <div>
+            <div style={{fontSize:9,letterSpacing:"0.15em",color:"#737373",textTransform:"uppercase",marginBottom:6}}>
+              Nickname
+              <span style={{color:"#555555",marginLeft:8,letterSpacing:"0.05em",textTransform:"none",fontSize:10}}>— optional display name applied to every matched transaction</span>
+            </div>
+            <input className="input" placeholder={`e.g. "${tx.description.split(/\s+/).slice(0,2).join(" ")}" → cleaner name`} value={nickname} onChange={e=>setNickname(e.target.value)} maxLength={100}/>
+            {nickname.trim()&&<div style={{fontSize:10,color:"#737373",marginTop:5}}>Transactions will show <span style={{color:"#ccc"}}>{nickname.trim()}</span> with the original bank description shown below in smaller text.</div>}
+          </div>
+
           {/* Preview */}
           {canSave && (
             <div style={{padding:"10px 14px",background:"#0f0f0f",borderRadius:8,border:"1px solid #1e1e1e"}}>
@@ -419,6 +429,7 @@ function CreateRuleModal({ tx, taxonomy, onSave, onCancel }) {
                 <span style={{color:"#5a5a5a"}}> / </span>
                 <span style={{color:"#999999"}}>{subcategory}</span>
                 <span style={{marginLeft:8}}><span className="tag" style={{background:tsPreview.bg,color:tsPreview.color}}>{TYPE_LABEL[ruleType]}</span></span>
+                {nickname.trim()&&<><br/>Display as <span style={{color:"#e8e0d5",fontWeight:500}}>{nickname.trim()}</span></>}
               </div>
             </div>
           )}
@@ -439,11 +450,14 @@ function TxRow({ t, onRemove, onEdit, onCreateRule }) {
   const amtColor = t.type==="income"?"#10b981":t.type==="notreported"?"#9ca3af":"#f43f5e";
   const prefix   = t.type==="income"?"+":t.type==="notreported"?"±":"";
   const acctMeta = t.source?ACCOUNT_TYPE_META[t.source]:null;
+  const displayName = t.nickname && t.nickname.trim() ? t.nickname.trim() : t.description;
+  const hasNickname = !!(t.nickname && t.nickname.trim() && t.nickname.trim() !== t.description);
   return (
     <div className="tx-row" style={{cursor:"pointer"}} onClick={e=>{if(e.target.closest&&e.target.closest(".btn-danger,.btn-rule"))return;if(onEdit)onEdit(t);}}>
       <div style={{width:7,height:7,borderRadius:"50%",background:catColor(t.category),flexShrink:0,marginTop:t.note?2:0}}/>
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:13,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:"#ddd"}}>{t.description}</div>
+        <div style={{fontSize:13,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:"#ddd"}}>{displayName}</div>
+        {hasNickname && <div style={{fontSize:10,color:"#555",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginBottom:1,fontStyle:"italic"}}>{t.description}</div>}
         <div style={{display:"flex",gap:6,marginTop:3,alignItems:"center",flexWrap:"wrap"}}>
           <span style={{fontSize:10,color:"#737373"}}>{t.date}</span>
           <span className="tag" style={{background:catColor(t.category)+"18",color:catColor(t.category)}}>{t.category}</span>
@@ -945,6 +959,115 @@ function TaxPanel({ panelType, taxonomy, collapsedCats, setCollapsedCats,
   );
 }
 
+// ── EditRuleModal ─────────────────────────────────────────────────────────────
+function EditRuleModal({ rule, taxonomy, onSave, onCancel }) {
+  const expenseCats = useMemo(() => computeExpenseCats(taxonomy), [taxonomy]);
+  const incomeCats  = useMemo(() => computeIncomeCats(taxonomy),  [taxonomy]);
+  const [val, setVal] = useState({ ...rule });
+  const [patternError, setPatternError] = useState("");
+
+  const cats = val.type === "income" ? incomeCats : expenseCats;
+  const subcats = useMemo(() => {
+    if (!val.category) return [];
+    const tf = val.type === "auto" ? "expense" : val.type;
+    const seen = {}, out = [];
+    taxonomy.forEach(t => {
+      if (t.category === val.category && !seen[t.subcategory]) {
+        const m = tf === "notreported" ? t.type === "notreported" : (t.type === tf || t.type === "notreported");
+        if (m) { seen[t.subcategory] = 1; out.push(t.subcategory); }
+      }
+    });
+    return out;
+  }, [taxonomy, val.category, val.type]);
+
+  function handleSave() {
+    setPatternError("");
+    if (!val.pattern.trim()) { setPatternError("A pattern is required."); return; }
+    if (!isSafePattern(val.pattern.trim())) { setPatternError("Invalid or unsafe pattern. Check for syntax errors or nested quantifiers."); return; }
+    if (!val.category || !val.subcategory) return;
+    onSave({ ...val, pattern: val.pattern.trim(), nickname: (val.nickname || "").trim() });
+  }
+
+  const ts = TYPE_STYLE[val.type] || TYPE_STYLE.auto;
+  const canSave = val.pattern && val.category && val.subcategory;
+
+  return (
+    <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div className="modal-box" style={{ background:"#181818", border:"1px solid #2e2e2e", borderRadius:16, width:"100%", maxWidth:500, boxShadow:"0 24px 64px rgba(0,0,0,0.7)", maxHeight:"90vh", overflowY:"auto" }}>
+        <div style={{ padding:"18px 22px 14px", borderBottom:"1px solid #222", display:"flex", justifyContent:"space-between", alignItems:"flex-start", position:"sticky", top:0, background:"#181818", zIndex:1 }}>
+          <div>
+            <div style={{ fontSize:10, letterSpacing:"0.2em", color:"#737373", textTransform:"uppercase", marginBottom:4 }}>Edit Rule</div>
+            <code style={{ fontSize:12, color:"#8b5cf6" }}>{rule.pattern}</code>
+          </div>
+          <button className="btn-danger" style={{ fontSize:20, padding:"4px 10px" }} onClick={onCancel}>×</button>
+        </div>
+
+        <div style={{ padding:"18px 22px", display:"grid", gap:16 }}>
+          {/* Pattern */}
+          <div>
+            <div style={{ fontSize:9, letterSpacing:"0.15em", color:"#737373", textTransform:"uppercase", marginBottom:6 }}>Match Pattern <span style={{ color:"#555", letterSpacing:"0.04em", textTransform:"none", fontSize:10 }}>— regex, max 200 chars</span></div>
+            <input className={"input"+(patternError?" input-error":"")} value={val.pattern} maxLength={200} onChange={e => { setVal(f => ({ ...f, pattern:e.target.value })); setPatternError(""); }} onKeyDown={e => { if (e.key==="Enter"&&canSave) handleSave(); if (e.key==="Escape") onCancel(); }} style={{ fontFamily:"monospace", color:"#8b5cf6" }} autoFocus/>
+            {patternError && <div style={{ fontSize:11, color:"#f43f5e", marginTop:4 }}>{patternError}</div>}
+          </div>
+
+          {/* Classification */}
+          <div>
+            <div style={{ fontSize:9, letterSpacing:"0.15em", color:"#737373", textTransform:"uppercase", marginBottom:8 }}>Classification</div>
+            <RuleTypeSelector value={val.type || "auto"} onChange={v => setVal(f => ({ ...f, type:v, category:"", subcategory:"" }))} />
+          </div>
+
+          {/* Category + Subcategory */}
+          <div className="grid-2">
+            <div>
+              <div style={{ fontSize:9, letterSpacing:"0.12em", color:"#737373", textTransform:"uppercase", marginBottom:6 }}>Category</div>
+              <select className="input" value={val.category} onChange={e => setVal(f => ({ ...f, category:e.target.value, subcategory:"" }))}>
+                <option value="">— Select —</option>
+                {cats.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize:9, letterSpacing:"0.12em", color:"#737373", textTransform:"uppercase", marginBottom:6 }}>Subcategory</div>
+              <select className="input" value={val.subcategory} disabled={!val.category} onChange={e => setVal(f => ({ ...f, subcategory:e.target.value }))}>
+                <option value="">— Select —</option>
+                {subcats.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Nickname */}
+          <div>
+            <div style={{ fontSize:9, letterSpacing:"0.15em", color:"#737373", textTransform:"uppercase", marginBottom:6 }}>Nickname <span style={{ color:"#555", letterSpacing:"0.04em", textTransform:"none", fontSize:10 }}>— optional display name for matched transactions</span></div>
+            <input className="input" placeholder="Leave blank to use original description" value={val.nickname || ""} maxLength={100} onChange={e => setVal(f => ({ ...f, nickname:e.target.value }))} onKeyDown={e => { if (e.key==="Enter"&&canSave) handleSave(); }}/>
+            {val.nickname && val.nickname.trim() && <div style={{ fontSize:10, color:"#737373", marginTop:5 }}>Transactions will show <span style={{ color:"#ccc" }}>{val.nickname.trim()}</span> with the original description below in smaller text.</div>}
+          </div>
+
+          {/* Preview */}
+          {canSave && (
+            <div style={{ padding:"10px 14px", background:"#0f0f0f", borderRadius:8, border:"1px solid #1e1e1e" }}>
+              <div style={{ fontSize:9, color:"#5a5a5a", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:6 }}>Rule Preview</div>
+              <div style={{ fontSize:11, color:"#888888", lineHeight:2 }}>
+                When description matches{" "}
+                <code style={{ color:"#8b5cf6", background:"#1a1a1a", padding:"1px 6px", borderRadius:4 }}>{val.pattern.trim()}</code>
+                {" → "}
+                <span style={{ color:catColor(val.category) }}>{val.category}</span>
+                <span style={{ color:"#5a5a5a" }}> / </span>
+                <span style={{ color:"#999999" }}>{val.subcategory}</span>
+                <span style={{ marginLeft:8 }}><span className="tag" style={{ background:ts.bg, color:ts.color }}>{TYPE_LABEL[val.type] || TYPE_LABEL.auto}</span></span>
+                {val.nickname && val.nickname.trim() && <><br/>Display as <span style={{ color:"#e8e0d5", fontWeight:500 }}>{val.nickname.trim()}</span></>}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display:"flex", gap:10 }}>
+            <button className="btn btn-primary" style={{ flex:1, padding:12, opacity:canSave?1:0.4, cursor:canSave?"pointer":"not-allowed" }} onClick={handleSave}>Save Rule</button>
+            <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
   const now = new Date();
@@ -1069,7 +1192,7 @@ function App() {
     if(!desc||isNaN(amt)||amt<=0){setObAmtError(!desc?"Enter a description.":isNaN(amt)||amt<=0?"Enter a valid positive amount.":"");return;}
     if(!obTx.category||!obTx.subcategory){setObAmtError("Select a category and subcategory.");return;}
     const sign=obTx.typeFilter==="income"?1:-1;
-    const tx={id:Date.now()+Math.random(),description:desc,amount:obTx.typeFilter==="notreported"?amt:sign*amt,category:obTx.category,subcategory:obTx.subcategory,type:obTx.typeFilter,date:obTx.date,note:obTx.note||""};
+    const tx={id:Date.now()+Math.random(),description:desc,nickname:"",amount:obTx.typeFilter==="notreported"?amt:sign*amt,category:obTx.category,subcategory:obTx.subcategory,type:obTx.typeFilter,date:obTx.date,note:obTx.note||""};
     setTransactions(prev=>[tx,...prev]);
     setOnboardStep("done");
   }
@@ -1101,6 +1224,7 @@ function App() {
       if (e.key === "Escape") {
         if (confirmModal)            { setConfirmModal(null); return; }
         if (createRuleTx)            { setCreateRuleTx(null); return; }
+        if (editingRuleIdx!==null)   { setEditingRuleIdx(null); setEditingRuleVal({}); return; }
         if (editingTx)               { closeEditTx(); return; }
         if (unmatchedQueue.length>0) { dismissReviewQueue(); return; }
         if (isNewUser)               return; // don't close onboarding
@@ -1111,7 +1235,7 @@ function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [confirmModal, createRuleTx, editingTx, unmatchedQueue, isNewUser, showForm, showImport, showAddMenu]);
+  }, [confirmModal, createRuleTx, editingRuleIdx, editingTx, unmatchedQueue, isNewUser, showForm, showImport, showAddMenu]);
 
   // ── Auto-focus description when add form opens ────────────────────────────
   useEffect(()=>{
@@ -1159,7 +1283,7 @@ function App() {
     setDupWarning(false);
     const tax=getTaxonomyEntry(taxonomy,form.category,form.subcategory);
     const rt=tax.type||form.typeFilter,sign=rt==="income"?1:-1;
-    setTransactions(prev=>[{id:Date.now(),description:form.description,amount:sign*amt,category:form.category,subcategory:form.subcategory,type:rt,date:form.date,note:form.note||""},...prev]);
+    setTransactions(prev=>[{id:Date.now(),description:form.description,nickname:"",amount:sign*amt,category:form.category,subcategory:form.subcategory,type:rt,date:form.date,note:form.note||""},...prev]);
     setForm(BLANK);setShowForm(false);
   }
   function removeTx(id){
@@ -1169,13 +1293,13 @@ function App() {
   }
 
   // ── Edit Tx modal ─────────────────────────────────────────────────────────
-  function openEditTx(t){setEditingTx(t);setEditForm({description:t.description,amount:String(Math.abs(t.amount)),typeFilter:t.type==="notreported"?"notreported":t.type,category:t.category,subcategory:t.subcategory,date:t.date,note:t.note||"",accountId:t.accountId||null});}
+  function openEditTx(t){setEditingTx(t);setEditForm({description:t.description,nickname:t.nickname||"",amount:String(Math.abs(t.amount)),typeFilter:t.type==="notreported"?"notreported":t.type,category:t.category,subcategory:t.subcategory,date:t.date,note:t.note||"",accountId:t.accountId||null});}
   function closeEditTx(){setEditingTx(null);setEditForm({});setEditSplitMode(false);setEditSplits([]);}
   function handleEditTFChange(tf){setEditForm(f=>({...f,typeFilter:tf,category:"",subcategory:""}));}
   function handleEditCatChange(cat){const subs=cat?getSubcats(taxonomy,cat,editForm.typeFilter):[];setEditForm(f=>({...f,category:cat,subcategory:subs[0]||""}));}
   function commitEditTx(){
     const linkedAcct=editForm.accountId?accounts.find(a=>a.id===editForm.accountId):null;
-    const base={description:editForm.description,date:editForm.date,note:editForm.note||"",
+    const base={description:editForm.description,nickname:editForm.nickname||"",date:editForm.date,note:editForm.note||"",
       accountId:linkedAcct?linkedAcct.id:null,accountName:linkedAcct?linkedAcct.name:null,
       source:linkedAcct?linkedAcct.type:(editingTx.source||null)};
     if(editSplitMode){
@@ -1293,7 +1417,7 @@ function App() {
       if(!m.matched)return t;
       const fA=m.type==="income"?Math.abs(t.amount):m.type==="expense"?-Math.abs(t.amount):t.amount;
       updated.push(t.description);
-      return{...t,category:m.category,subcategory:m.subcategory,type:m.type,amount:fA};
+      return{...t,category:m.category,subcategory:m.subcategory,type:m.type,amount:fA,nickname:m.nickname||t.nickname||""};
     });
     showConfirm(
       `Re-run rules on ${eligible.length} unassigned transaction${eligible.length!==1?"s":""}?`,
@@ -1362,8 +1486,19 @@ function App() {
 
   // ── CSV Export ────────────────────────────────────────────────────────────
   function handleCSVExport(){
-    const header=["Date","Description","Amount","Type","Category","Subcategory","Note"];
-    const rows=transactions.map(t=>[t.date,`"${(t.description||"").replace(/"/g,'""')}"`,t.amount,t.type,t.category,t.subcategory,`"${(t.note||"").replace(/"/g,'""')}"`]);
+    const header=["Date","Description","Nickname","Amount","Type","Category","Subcategory","Note"];
+    const rows=transactions
+      .filter(t=>!t._splitParent)
+      .map(t=>[
+        t.date,
+        `"${(t.description||"").replace(/"/g,'""')}"`,
+        `"${(t.nickname||"").replace(/"/g,'""')}"`,
+        t.amount,
+        t.type,
+        t.category,
+        t.subcategory,
+        `"${(t.note||"").replace(/"/g,'"')}"`
+      ]);
     const csv=[header,...rows].map(r=>r.join(",")).join("\n");
     const blob=new Blob([csv],{type:"text/csv"});const url=URL.createObjectURL(blob);
     const a=document.createElement("a");a.href=url;a.download=`transactions-${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(url);
@@ -1371,7 +1506,7 @@ function App() {
 
   // ── Backup ────────────────────────────────────────────────────────────────
   function handleBackupExport(){
-    const b={version:2,exportedAt:new Date().toISOString(),transactions,taxonomy,descRules,accounts};
+    const b={version:3,exportedAt:new Date().toISOString(),transactions,taxonomy,descRules,accounts};
     const blob=new Blob([JSON.stringify(b,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);
     const a=document.createElement("a");a.href=url;a.download=`budget-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);
   }
@@ -1382,12 +1517,13 @@ function App() {
       try{
         const b=JSON.parse(evt.target.result);
         const v=b&&b.version;
-        const isValidVersion=(v===1||v===2);
+        const isValidVersion=(v===1||v===2||v===3);
         const hasData=b&&Array.isArray(b.transactions);
         if(!hasData||!isValidVersion){showConfirm("Invalid backup file","This file doesn't appear to be a valid Budget Tracker backup.","OK",false,()=>{});return;}
         const txN=(b.transactions||[]).length,taxN=(b.taxonomy||[]).length,rN=(b.descRules||[]).length,acctN=(b.accounts||[]).length;
         const detail=`This will permanently overwrite all current data with ${txN} transaction${txN!==1?"s":""}, ${acctN} account${acctN!==1?"s":""}, ${taxN} categor${taxN!==1?"ies":"y"}, and ${rN} rule${rN!==1?"s":""}. This cannot be undone.`
-          +(v===1?" (Legacy backup — transactions will appear as Not Linked until assigned to an account.)":"");
+          +(v===1?" (Legacy v1 backup — transactions will appear as Not Linked until assigned to an account.)"
+           :v===2?" (v2 backup — nickname fields on transactions and rules will be empty and can be re-added manually.)":"");
         pendingBackupRef.current=b;
         showConfirm("Restore this backup?",detail,"Restore Backup",true,()=>{
           const bk=pendingBackupRef.current;
@@ -1402,7 +1538,7 @@ function App() {
               if(!t.accountId)return t;
               const acct=acctMap[t.accountId];
               if(acct)return{...t,accountId:acct.id,accountName:acct.name,source:acct.type};
-              return{...t,accountId:null,accountName:null};
+              return{...t,accountId:null,accountName:null,source:null};
             });
             setTransactions(linked);
           }
@@ -1550,6 +1686,15 @@ function App() {
           }
         }
 
+        // ── Advance firstRow to the first row with a numeric amount ──────────
+        // Handles bank exports that have title rows, blank rows, or sub-headers
+        // sitting between the column header and the real data.
+        if(bestAmtCol!==null){
+          for(let i=firstRow;i<Math.min(raw.length,firstRow+20);i++){
+            if(isNumberLike(raw[i]?.[bestAmtCol])){firstRow=i;break;}
+          }
+        }
+
         setImportRawData(raw);
         setImportFirstRow(firstRow);
         setImportDateCol(bestDateCol);
@@ -1580,7 +1725,7 @@ function App() {
       const fA=m.type==="income"?Math.abs(amt):m.type==="expense"?-Math.abs(amt):amt;
       // Dedup check — includes _splitParent ghost records so split transactions never re-import
       if(transactions.concat(imp).some(t=>t.date===date&&Math.abs(Math.abs(t.amount)-Math.abs(fA))<0.005&&t.description===desc)){dup++;return;}
-      const tx={id:Date.now()+Math.random(),description:desc,amount:fA,category:m.category,subcategory:m.subcategory,type:m.type,date,source:acctType,accountId:selectedAccount?selectedAccount.id:null,accountName:selectedAccount?selectedAccount.name:null};
+      const tx={id:Date.now()+Math.random(),description:desc,nickname:m.nickname||"",amount:fA,category:m.category,subcategory:m.subcategory,type:m.type,date,source:acctType,accountId:selectedAccount?selectedAccount.id:null,accountName:selectedAccount?selectedAccount.name:null};
       if(!m.matched)unmatched.push(tx);else imp.push(tx);
     });
     if(imp.length>0)setTransactions(prev=>imp.concat(prev));
@@ -1606,7 +1751,7 @@ function App() {
         const tax=getTaxonomyEntry(taxonomy,sp.category,sp.subcategory);
         const rt=tax.type||(item.amount<0?"expense":"income");
         const sign=rt==="income"?1:-1;
-        return{id:Date.now()+Math.random(),description:item.description,date:item.date,note:item.note||"",
+        return{id:Date.now()+Math.random(),description:item.description,nickname:item.nickname||"",date:item.date,note:item.note||"",
           accountId:item.accountId,accountName:item.accountName,source:item.source,
           amount:sign*parseFloat(sp.amount),category:sp.category,subcategory:sp.subcategory,type:rt};
       });
@@ -2292,64 +2437,35 @@ function App() {
                 <div style={{padding:"8px 12px",borderBottom:"1px solid #1e1e1e"}}>
                   <div style={{display:"flex",gap:8}}>
                     <div style={{flex:"0 0 18px"}}/>
-                    {["Pattern (regex)","Category","Subcategory","Classification"].map((h,i)=><div key={h} style={{flex:i===0?"2 1 160px":i===3?"0 0 110px":"1 1 100px",fontSize:9,color:"#5a5a5a",letterSpacing:"0.12em",textTransform:"uppercase"}}>{h}</div>)}
+                    {["Pattern (regex)","Category","Subcategory","Classification","Nickname"].map((h,i)=><div key={h} style={{flex:i===0?"2 1 160px":i===3?"0 0 110px":i===4?"1 1 90px":"1 1 100px",fontSize:9,color:"#5a5a5a",letterSpacing:"0.12em",textTransform:"uppercase"}}>{h}</div>)}
                     <div style={{flex:"0 0 28px"}}/>
                   </div>
-                  <div style={{fontSize:9,color:"#555555",marginTop:4,letterSpacing:"0.05em"}}>↑ click any field to edit inline &nbsp;·&nbsp; ⠿ drag to reorder</div>
+                  <div style={{fontSize:9,color:"#555555",marginTop:4,letterSpacing:"0.05em"}}>↑ click any row to edit &nbsp;·&nbsp; ⠿ drag to reorder</div>
                 </div>
                 <div style={{maxHeight:400,overflowY:"auto"}}>
                   {descRules.map((r,idx)=>{
-                    const isEd=editingRuleIdx===idx,ev=editingRuleVal;
                     const ts=TYPE_STYLE[r.type]||TYPE_STYLE.auto;
                     const cellStyle={cursor:"pointer",borderRadius:4,padding:"3px 6px",transition:"background 0.12s"};
                     const isDragOver=dragOverRuleIdx===idx&&dragRuleIdx!==idx;
                     const isDragging=dragRuleIdx===idx;
                     return(
                       <div key={idx} className="edit-row"
-                        draggable={!isEd}
+                        draggable
                         onDragStart={()=>{setDragRuleIdx(idx);setEditingRuleIdx(null);setEditingRuleVal({});}}
                         onDragOver={e=>{e.preventDefault();setDragOverRuleIdx(idx);}}
                         onDragLeave={()=>{if(dragOverRuleIdx===idx)setDragOverRuleIdx(null);}}
                         onDrop={()=>dropRule(idx)}
                         onDragEnd={()=>{setDragRuleIdx(null);setDragOverRuleIdx(null);}}
-                        style={{background:isDragOver?"#1f1a2e":isEd?"#1e1e1e":"",flexWrap:isEd?"wrap":"nowrap",alignItems:isEd?"flex-start":"center",gap:isEd?6:8,opacity:isDragging?0.4:1,borderTop:isDragOver?"2px solid #8b5cf6":"",transition:"border 0.1s,opacity 0.1s"}}>
-                        {!isEd&&<div style={{flex:"0 0 18px",cursor:"grab",color:"#555555",fontSize:13,userSelect:"none",textAlign:"center"}} title="Drag to reorder">⠿</div>}
-                        {isEd?(
-                          <div style={{width:"100%",display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                            <div style={{gridColumn:"1 / -1"}}>
-                              <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Match Pattern (regex, max 200 chars)</div>
-                              <input className="input-sm" value={ev.pattern} maxLength={200} onChange={e=>setEditingRuleVal(f=>({...f,pattern:e.target.value}))} onKeyDown={e=>{if(e.key==="Escape"){setEditingRuleIdx(null);setEditingRuleVal({});}}} style={{width:"100%",fontFamily:"monospace",color:"#8b5cf6"}} autoFocus/>
-                            </div>
-                            <div>
-                              <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Category</div>
-                              <select className="input-sm" value={ev.category} onChange={e=>setEditingRuleVal(f=>({...f,category:e.target.value,subcategory:""}))} style={{width:"100%"}}>
-                                <option value="">— Select —</option>{editingRuleCats.map(c=><option key={c} value={c}>{c}</option>)}
-                              </select>
-                            </div>
-                            <div>
-                              <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Subcategory</div>
-                              <select className="input-sm" value={ev.subcategory} disabled={!ev.category} onChange={e=>setEditingRuleVal(f=>({...f,subcategory:e.target.value}))} style={{width:"100%"}}>
-                                <option value="">— Select —</option>{editingRuleSubcats.map(s=><option key={s} value={s}>{s}</option>)}
-                              </select>
-                            </div>
-                            <div style={{gridColumn:"1 / -1"}}>
-                              <div style={{fontSize:9,color:"#737373",marginBottom:6,letterSpacing:"0.1em",textTransform:"uppercase"}}>Classification</div>
-                              <RuleTypeSelector value={ev.type||"auto"} onChange={v=>setEditingRuleVal(f=>({...f,type:v,category:"",subcategory:""}))} size="small"/>
-                            </div>
-                            <div style={{gridColumn:"1 / -1",display:"flex",gap:8,marginTop:2}}>
-                              <button className="btn btn-primary" style={{padding:"7px 18px",fontSize:12}} onClick={commitEditRule}>Save</button>
-                              <button className="btn-ghost" onClick={()=>{setEditingRuleIdx(null);setEditingRuleVal({});}}>Cancel</button>
-                            </div>
-                          </div>
-                        ):(<>
-                          <div style={{...cellStyle,flex:"2 1 160px",fontSize:11,color:"#8b5cf6",fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>startEditRule(idx)} title={r.pattern}>{r.pattern}</div>
-                          <div style={{...cellStyle,flex:"1 1 100px",fontSize:11,color:"#bbb",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>startEditRule(idx)}>{r.category}</div>
-                          <div style={{...cellStyle,flex:"1 1 100px",fontSize:11,color:"#999999",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>startEditRule(idx)}>{r.subcategory}</div>
-                          <div style={{flex:"0 0 110px",cursor:"pointer"}} onClick={()=>startEditRule(idx)}>
-                            <span className="tag" style={{background:ts.bg,color:ts.color,fontSize:9}}>{TYPE_LABEL[r.type]||TYPE_LABEL.auto}</span>
-                          </div>
-                          <div style={{flex:"0 0 28px",textAlign:"right"}}><button className="btn-danger" style={{fontSize:14}} onClick={()=>removeRuleEntry(idx)}>×</button></div>
-                        </>)}
+                        style={{flexWrap:"nowrap",alignItems:"center",gap:8,opacity:isDragging?0.4:1,borderTop:isDragOver?"2px solid #8b5cf6":"",transition:"border 0.1s,opacity 0.1s"}}>
+                        <div style={{flex:"0 0 18px",cursor:"grab",color:"#555555",fontSize:13,userSelect:"none",textAlign:"center"}} title="Drag to reorder">⠿</div>
+                        <div style={{...cellStyle,flex:"2 1 160px",fontSize:11,color:"#8b5cf6",fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>startEditRule(idx)} title={r.pattern}>{r.pattern}</div>
+                        <div style={{...cellStyle,flex:"1 1 100px",fontSize:11,color:"#bbb",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>startEditRule(idx)}>{r.category}</div>
+                        <div style={{...cellStyle,flex:"1 1 100px",fontSize:11,color:"#999999",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>startEditRule(idx)}>{r.subcategory}</div>
+                        <div style={{flex:"0 0 110px",cursor:"pointer"}} onClick={()=>startEditRule(idx)}>
+                          <span className="tag" style={{background:ts.bg,color:ts.color,fontSize:9}}>{TYPE_LABEL[r.type]||TYPE_LABEL.auto}</span>
+                        </div>
+                        <div style={{...cellStyle,flex:"1 1 90px",fontSize:11,color:r.nickname?"#e8e0d5":"#444",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontStyle:r.nickname?"normal":"italic"}} onClick={()=>startEditRule(idx)} title={r.nickname||""}>{r.nickname||"—"}</div>
+                        <div style={{flex:"0 0 28px",textAlign:"right"}}><button className="btn-danger" style={{fontSize:14}} onClick={()=>removeRuleEntry(idx)}>×</button></div>
                       </div>
                     );
                   })}
@@ -2378,6 +2494,10 @@ function App() {
                     <div>
                       <div style={{fontSize:9,color:"#737373",marginBottom:6,letterSpacing:"0.1em",textTransform:"uppercase"}}>Classification</div>
                       <RuleTypeSelector value={newRule.type} onChange={v=>setNewRule(f=>({...f,type:v,category:"",subcategory:""}))}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Nickname <span style={{color:"#555",letterSpacing:"0.04em",textTransform:"none"}}>— optional display name for matched transactions</span></div>
+                      <input className="input-sm" placeholder="Leave blank to use original description" value={newRule.nickname||""} maxLength={100} onChange={e=>setNewRule(f=>({...f,nickname:e.target.value}))}/>
                     </div>
                     <button className="btn btn-primary" onClick={addRuleEntry} style={{width:"100%",padding:"9px"}}>+ Add Rule</button>
                   </div>
@@ -2544,6 +2664,10 @@ function App() {
                 <div>
                   <div style={{fontSize:9,letterSpacing:"0.12em",color:"#737373",textTransform:"uppercase",marginBottom:6}}>Description</div>
                   <input className="input" value={editForm.description||""} onChange={e=>setEditForm(f=>({...f,description:e.target.value}))} onKeyDown={e=>{if(e.key==="Enter"&&!editSplitMode)commitEditTx();}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:9,letterSpacing:"0.12em",color:"#737373",textTransform:"uppercase",marginBottom:4}}>Nickname <span style={{color:"#555",letterSpacing:"0.04em",textTransform:"none",fontSize:10}}>— optional cleaner display name</span></div>
+                  <input className="input" placeholder="Leave blank to show original description" value={editForm.nickname||""} onChange={e=>setEditForm(f=>({...f,nickname:e.target.value}))} maxLength={100} onKeyDown={e=>{if(e.key==="Enter"&&!editSplitMode)commitEditTx();}}/>
                 </div>
                 <div className="grid-2">
                   <div>
@@ -2990,6 +3114,11 @@ function App() {
       })()}
       {createRuleTx&&(
         <CreateRuleModal tx={createRuleTx} taxonomy={taxonomy} onSave={saveCreatedRule} onCancel={()=>setCreateRuleTx(null)}/>
+      )}
+      {editingRuleIdx!==null&&(
+        <EditRuleModal rule={editingRuleVal} taxonomy={taxonomy}
+          onSave={rule=>{setDescRules(prev=>prev.map((r,i)=>i===editingRuleIdx?rule:r));setEditingRuleIdx(null);setEditingRuleVal({});}}
+          onCancel={()=>{setEditingRuleIdx(null);setEditingRuleVal({});}}/>
       )}
 
       {/* Confirm Modal */}
