@@ -1068,6 +1068,119 @@ function EditRuleModal({ rule, taxonomy, onSave, onCancel }) {
   );
 }
 
+// ── QuickAddTaxModal ──────────────────────────────────────────────────────────
+function QuickAddTaxModal({ typeHint, taxonomy, allCats, onAdd, onCancel }) {
+  const [cat,    setCat]    = useState("");
+  const [sub,    setSub]    = useState("");
+  const [type,   setType]   = useState(typeHint === "income" ? "income" : "expense");
+  const [budget, setBudget] = useState("");
+  const [err,    setErr]    = useState("");
+
+  const subSugs = useMemo(() => {
+    if (!cat) return [];
+    const seen = {}, out = [];
+    taxonomy.forEach(t => { if (t.category === cat && !seen[t.subcategory]) { seen[t.subcategory] = 1; out.push(t.subcategory); } });
+    return out;
+  }, [taxonomy, cat]);
+
+  const isExpense = type !== "income";
+
+  function handleAdd() {
+    if (!cat.trim() || !sub.trim()) { setErr("Both Category and Subcategory are required."); return; }
+    onAdd({ category: cat.trim(), subcategory: sub.trim(), type, budget: parseFloat(budget) || 0 });
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div className="modal-box" style={{ background:"#181818", border:"1px solid #2e2e2e", borderRadius:16, width:"100%", maxWidth:420, boxShadow:"0 24px 64px rgba(0,0,0,0.7)" }}>
+        <div style={{ padding:"16px 20px 12px", borderBottom:"1px solid #222", display:"flex", justifyContent:"space-between", alignItems:"center", position:"sticky", top:0, background:"#181818", zIndex:1 }}>
+          <div style={{ fontSize:10, letterSpacing:"0.2em", color:"#737373", textTransform:"uppercase" }}>Add Category Entry</div>
+          <button className="btn-danger" style={{ fontSize:20, padding:"4px 10px" }} onClick={onCancel}>×</button>
+        </div>
+        <div style={{ padding:"16px 20px 20px", display:"grid", gap:12 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <div>
+              <div style={{ fontSize:9, color:"#737373", marginBottom:4, letterSpacing:"0.1em", textTransform:"uppercase" }}>Category</div>
+              <input className="input" list="qat-cat-list" placeholder="e.g. Groceries" value={cat}
+                onChange={e => { setCat(e.target.value); setSub(""); setErr(""); }} autoFocus/>
+              <datalist id="qat-cat-list">{allCats.map(c => <option key={c} value={c}/>)}</datalist>
+            </div>
+            <div>
+              <div style={{ fontSize:9, color:"#737373", marginBottom:4, letterSpacing:"0.1em", textTransform:"uppercase" }}>Subcategory</div>
+              <input className="input" list="qat-sub-list" placeholder="e.g. Weekly Shop" value={sub}
+                onChange={e => { setSub(e.target.value); setErr(""); }}/>
+              <datalist id="qat-sub-list">{subSugs.map(s => <option key={s} value={s}/>)}</datalist>
+            </div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, alignItems:"end" }}>
+            <div>
+              <div style={{ fontSize:9, color:"#737373", marginBottom:6, letterSpacing:"0.1em", textTransform:"uppercase" }}>Type</div>
+              <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                {(typeHint === "income" ? ["income"] : ["expense","notreported"]).map(tf => (
+                  <button key={tf} className={"btn chip-sm " + (type === tf ? "chip-active" : "chip-inactive")}
+                    onClick={() => setType(tf)} style={{ fontSize:9, padding:"2px 8px" }}>
+                    {tf === "notreported" ? "Not Rep." : tf[0].toUpperCase() + tf.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize:9, color:"#737373", marginBottom:4, letterSpacing:"0.1em", textTransform:"uppercase" }}>Budget (CAD)</div>
+              <input className="input" type="number" placeholder="0.00" value={budget}
+                onChange={e => setBudget(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleAdd(); }}/>
+            </div>
+          </div>
+          {err && <div style={{ fontSize:11, color:"#f43f5e" }}>{err}</div>}
+          <div style={{ display:"flex", gap:10 }}>
+            <button className="btn btn-primary" style={{ flex:1, padding:11 }} onClick={handleAdd}>+ Add Entry</button>
+            <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── parseDateSearch ───────────────────────────────────────────────────────────
+// Returns a (isoDateStr) => bool matcher if q looks like a date query, else null.
+// Supported: "2025-03-15", "2025-03", "2025", "March", "Mar",
+//            "March 15", "March 15th", "Mar 15th",
+//            "March 2025", "Mar 2025",
+//            "March 15, 2025", "Mar 15th 2025"
+function parseDateSearch(q) {
+  const s = q.trim().toLowerCase();
+  if (!s) return null;
+  const MF = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+  const MS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+  function mIdx(name) {
+    const n = name.toLowerCase().replace(/[.,]+$/,"");
+    let i = MF.indexOf(n); if (i >= 0) return i;
+    i = MS.indexOf(n.slice(0,3)); return i;
+  }
+  function pad(n) { return String(parseInt(n)).padStart(2,"0"); }
+
+  // ISO exact: 2025-03-15
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return d => d === s;
+  // ISO year-month: 2025-03
+  const ym = s.match(/^(\d{4})-(\d{2})$/);
+  if (ym) return d => d.startsWith(ym[1]+"-"+ym[2]);
+  // Year only: 2025
+  if (/^\d{4}$/.test(s)) return d => d.startsWith(s+"-");
+  // Month + day + year: "March 15, 2025" / "Mar 15th 2025"
+  const mdy = s.match(/^([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?[,.]?\s+(\d{4})$/);
+  if (mdy) { const mi=mIdx(mdy[1]); if (mi>=0) { const mm=pad(mi+1),dd=pad(mdy[2]),y=mdy[3]; return d=>d===y+"-"+mm+"-"+dd; } }
+  // Month + day: "March 15" / "Mar 15th"
+  const md = s.match(/^([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?[,.]?\s*$/);
+  if (md) { const mi=mIdx(md[1]); if (mi>=0) { const mm=pad(mi+1),dd=pad(md[2]); return d=>d.slice(5,7)===mm&&d.slice(8,10)===dd; } }
+  // Month + year: "March 2025" / "Mar 2025"
+  const my = s.match(/^([a-z]+)\.?\s+(\d{4})$/);
+  if (my) { const mi=mIdx(my[1]); if (mi>=0) { const mm=pad(mi+1),y=my[2]; return d=>d.startsWith(y+"-"+mm); } }
+  // Month name only: "March" / "mar"
+  const mo = mIdx(s);
+  if (mo >= 0) { const mm=pad(mo+1); return d=>d.slice(5,7)===mm; }
+  return null;
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
   const now = new Date();
@@ -1075,7 +1188,7 @@ function App() {
   const [loaded, setLoaded]                 = useState(false);
   const [form, setForm]                     = useState(BLANK);
   const [amountError, setAmountError]       = useState("");
-  const [filterType, setFilterType]         = useState("all");
+  const [filterType, setFilterType]         = useState(()=>{ try{return sessionStorage.getItem("bt-filterType")||"all";}catch{return "all";} });
   const [showForm, setShowForm]             = useState(false);
   const [showImport, setShowImport]         = useState(false);
   const [showAddMenu, setShowAddMenu]       = useState(false);
@@ -1093,7 +1206,7 @@ function App() {
   const [importDescCol, setImportDescCol]   = useState(null);
   const [importStatus, setImportStatus]     = useState(null);
   const [activeTab, setActiveTab]           = useState("transactions");
-  const [selectedAccountId, setSelectedAccountId] = useState(null); // null=all, "__unlinked__", or account id
+  const [selectedAccountId, setSelectedAccountId] = useState(()=>{ try{const v=sessionStorage.getItem("bt-acctId");return v==="null"?null:v||null;}catch{return null;} });
   const [monthYear, setMonthYear]           = useState({ month:now.getMonth(), year:now.getFullYear() });
   const [taxonomy, setTaxonomy]             = useState(DEFAULT_TAXONOMY);
   const [descRules, setDescRules]           = useState(DEFAULT_DESC_RULES);
@@ -1105,11 +1218,11 @@ function App() {
   const [editingRuleIdx, setEditingRuleIdx] = useState(null);
   const [editingRuleVal, setEditingRuleVal] = useState({});
   const [unmatchedQueue, setUnmatchedQueue] = useState([]);
-  const [searchQuery, setSearchQuery]       = useState("");
+  const [searchQuery, setSearchQuery]       = useState(()=>{ try{return sessionStorage.getItem("bt-search")||"";}catch{return "";} });
 
   const [amountMin, setAmountMin]           = useState("");
   const [amountMax, setAmountMax]           = useState("");
-  const [txPage, setTxPage]                 = useState(0);
+  const [txPage, setTxPage]                 = useState(()=>{ try{return parseInt(sessionStorage.getItem("bt-page")||"0")||0;}catch{return 0;} });
   const [editingTx, setEditingTx]           = useState(null);
   const [editForm, setEditForm]             = useState({});
   const [reviewIdx, setReviewIdx]           = useState(0);
@@ -1128,6 +1241,7 @@ function App() {
   const [dupWarning, setDupWarning]         = useState(false);
   const [showDupScanner, setShowDupScanner]   = useState(false);
   const [showSplitParents, setShowSplitParents] = useState(false);
+  const [quickAddTaxCtx, setQuickAddTaxCtx]   = useState(null); // null | { typeHint, onAdded(entry) }
   const [editSplitMode, setEditSplitMode]   = useState(false);
   const [editSplits, setEditSplits]         = useState([]);
   const [reviewSplitMode, setReviewSplitMode] = useState(false);
@@ -1145,6 +1259,7 @@ function App() {
   const undoTimerRef     = useRef(null);
   const ruleToastTimer   = useRef(null);
   const fileRef          = useRef(null);
+  const savedTxPageRef   = useRef(0);
   const descriptionRef   = useRef(null);
 
   function showConfirm(message, detail, confirmLabel, danger, onConfirm) {
@@ -1218,6 +1333,12 @@ function App() {
   useEffect(()=>{if(!loaded)return;try{localStorage.setItem(RULES_KEY,JSON.stringify(descRules));}catch(e){}},[descRules,loaded]);
   useEffect(()=>{if(!loaded)return;try{localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));}catch(e){}},[accounts,loaded]);
 
+  // ── Persist filter/search/page across refresh (sessionStorage) ────────────
+  useEffect(()=>{try{sessionStorage.setItem("bt-filterType",filterType);}catch{}},[filterType]);
+  useEffect(()=>{try{sessionStorage.setItem("bt-search",searchQuery);}catch{}},[searchQuery]);
+  useEffect(()=>{try{sessionStorage.setItem("bt-page",String(txPage));}catch{}},[txPage]);
+  useEffect(()=>{try{sessionStorage.setItem("bt-acctId",selectedAccountId===null?"null":String(selectedAccountId));}catch{}},[selectedAccountId]);
+
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(()=>{
     function onKey(e) {
@@ -1225,7 +1346,7 @@ function App() {
         if (confirmModal)            { setConfirmModal(null); return; }
         if (createRuleTx)            { setCreateRuleTx(null); return; }
         if (editingRuleIdx!==null)   { setEditingRuleIdx(null); setEditingRuleVal({}); return; }
-        if (editingTx)               { closeEditTx(); return; }
+        if (editingTx)               { maybeCloseEditTx(); return; }
         if (unmatchedQueue.length>0) { dismissReviewQueue(); return; }
         if (isNewUser)               return; // don't close onboarding
         if (showForm)                { setShowForm(false); setAmountError(""); setDupWarning(false); return; }
@@ -1293,8 +1414,24 @@ function App() {
   }
 
   // ── Edit Tx modal ─────────────────────────────────────────────────────────
-  function openEditTx(t){setEditingTx(t);setEditForm({description:t.description,nickname:t.nickname||"",amount:String(Math.abs(t.amount)),typeFilter:t.type==="notreported"?"notreported":t.type,category:t.category,subcategory:t.subcategory,date:t.date,note:t.note||"",accountId:t.accountId||null});}
-  function closeEditTx(){setEditingTx(null);setEditForm({});setEditSplitMode(false);setEditSplits([]);}
+  function openEditTx(t){savedTxPageRef.current=txPage;setEditingTx(t);setEditForm({description:t.description,nickname:t.nickname||"",amount:String(Math.abs(t.amount)),typeFilter:t.type==="notreported"?"notreported":t.type,category:t.category,subcategory:t.subcategory,date:t.date,note:t.note||"",accountId:t.accountId||null});}
+  function closeEditTx(){setTxPage(savedTxPageRef.current);setEditingTx(null);setEditForm({});setEditSplitMode(false);setEditSplits([]);}
+  function isEditTxDirty(){
+    if(!editingTx)return false;
+    return editForm.description!==(editingTx.description||"")
+      ||editForm.nickname!==(editingTx.nickname||"")
+      ||editForm.amount!==String(Math.abs(editingTx.amount))
+      ||editForm.date!==(editingTx.date||"")
+      ||editForm.note!==(editingTx.note||"")
+      ||editForm.category!==(editingTx.category||"")
+      ||editForm.subcategory!==(editingTx.subcategory||"")
+      ||editForm.accountId!==(editingTx.accountId||null)
+      ||editSplitMode;
+  }
+  function maybeCloseEditTx(){
+    if(isEditTxDirty()){showConfirm("Discard changes?","You have unsaved changes. Close anyway?","Discard",true,closeEditTx);}
+    else{closeEditTx();}
+  }
   function handleEditTFChange(tf){setEditForm(f=>({...f,typeFilter:tf,category:"",subcategory:""}));}
   function handleEditCatChange(cat){const subs=cat?getSubcats(taxonomy,cat,editForm.typeFilter):[];setEditForm(f=>({...f,category:cat,subcategory:subs[0]||""}));}
   function commitEditTx(){
@@ -1362,6 +1499,16 @@ function App() {
     setNewTax(BLANK_TAX);
   }
   function removeTaxEntry(idx){showConfirm("Remove this category entry?",`${taxonomy[idx].category} → ${taxonomy[idx].subcategory}`,"Remove",true,()=>setTaxonomy(prev=>prev.filter((_,i)=>i!==idx)));}
+  // Direct variant used by QuickAddTaxModal — takes a full entry object, no newTax state dependency
+  function addTaxEntryDirect(entry){
+    if(!entry.category||!entry.subcategory)return;
+    setTaxonomy(prev=>{
+      let lastIdx=-1;
+      prev.forEach((t,i)=>{if(t.category===entry.category)lastIdx=i;});
+      if(lastIdx===-1)return[...prev,entry];
+      const next=[...prev];next.splice(lastIdx+1,0,entry);return next;
+    });
+  }
   function removeCategoryGroup(cat){
     if(cat==="Not Assigned")return;
     const affectedCount=transactions.filter(t=>t.category===cat).length;
@@ -1377,7 +1524,26 @@ function App() {
   function addRuleEntry(){
     if(!newRule.pattern.trim()||!newRule.category||!newRule.subcategory)return;
     if(!isSafePattern(newRule.pattern.trim())){showConfirm("Invalid pattern","The regex pattern is invalid or contains nested quantifiers.","OK",false,()=>{});return;}
-    setDescRules(prev=>[...prev,{pattern:newRule.pattern.trim(),category:newRule.category,subcategory:newRule.subcategory,type:newRule.type}]);
+    const newPat=newRule.pattern.trim();
+    const shadowedBy=descRules.find(r=>{
+      try{
+        // Check if the new rule's sample matches are all already caught by an existing rule
+        // Simpler practical check: if any existing rule's pattern matches everything the new one matches
+        // We test by checking if existing rule regex matches the new pattern string itself (heuristic)
+        // Real check: existing rule fires before new one for any string the new rule would match
+        return r!==newRule&&new RegExp(r.pattern,"i").test(newPat);
+      }catch{return false;}
+    });
+    if(shadowedBy){
+      showConfirm(
+        "This rule may be shadowed",
+        `An earlier rule with pattern "${shadowedBy.pattern}" could match the same transactions and always fires first. This new rule may never be reached. Add it anyway?`,
+        "Add Anyway",false,
+        ()=>{setDescRules(prev=>[...prev,{pattern:newPat,category:newRule.category,subcategory:newRule.subcategory,type:newRule.type,nickname:newRule.nickname||""}]);setNewRule(BLANK_RULE);}
+      );
+      return;
+    }
+    setDescRules(prev=>[...prev,{pattern:newPat,category:newRule.category,subcategory:newRule.subcategory,type:newRule.type,nickname:newRule.nickname||""}]);
     setNewRule(BLANK_RULE);
   }
   function removeRuleEntry(idx){showConfirm("Remove this rule?",descRules[idx].pattern,"Remove",true,()=>setDescRules(prev=>prev.filter((_,i)=>i!==idx)));}
@@ -1465,9 +1631,16 @@ function App() {
   const maxCatVal    = useMemo(()=>Math.max(...Object.values(stats.byCat).map(c=>c.total),1),[stats]);
   const filteredTx   = useMemo(()=>{
     const q=searchQuery.trim().toLowerCase();
+    const dateMatch = parseDateSearch(q);
     return viewTx.filter(t=>{
       if(filterType!=="all"&&t.type!==filterType)return false;
-      if(q&&!(t.description+" "+t.category+" "+t.subcategory+" "+(t.note||"")).toLowerCase().includes(q))return false;
+      if(q){
+        if(dateMatch){
+          if(!dateMatch(t.date))return false;
+        } else {
+          if(!(t.description+" "+t.category+" "+t.subcategory+" "+(t.note||"")).toLowerCase().includes(q))return false;
+        }
+      }
       const abs=Math.abs(t.amount);
       if(amountMin!==""&&abs<parseFloat(amountMin))return false;
       if(amountMax!==""&&abs>parseFloat(amountMax))return false;
@@ -1479,6 +1652,37 @@ function App() {
   const pagedTx      = filteredTx.slice(txPage * TX_PAGE_SIZE, (txPage + 1) * TX_PAGE_SIZE);
   function clearFilters(){setSearchQuery("");setAmountMin("");setAmountMax("");setTxPage(0);}
   const hasFilters=!!(searchQuery||amountMin||amountMax);
+
+  // #4 — Running totals for the filtered set
+  const filteredTotals = useMemo(()=>{
+    let income=0, expenses=0;
+    filteredTx.forEach(t=>{
+      if(t.type==="income") income+=t.amount;
+      else if(t.type==="expense") expenses+=Math.abs(t.amount);
+    });
+    return {income, expenses, net:income-expenses};
+  },[filteredTx]);
+
+  // #1 — Group pagedTx by date for display
+  const pagedGroups = useMemo(()=>{
+    const todayStr  = new Date().toISOString().split("T")[0];
+    const yestDate  = new Date(); yestDate.setDate(yestDate.getDate()-1);
+    const yestStr   = yestDate.toISOString().split("T")[0];
+    function dateLabel(d){
+      if(d===todayStr) return "Today";
+      if(d===yestStr)  return "Yesterday";
+      const dt=new Date(d+"T00:00:00");
+      return dt.toLocaleDateString("en-CA",{weekday:"short",month:"short",day:"numeric",year:dt.getFullYear()!==new Date().getFullYear()?"numeric":undefined});
+    }
+    const groups=[];
+    pagedTx.forEach(t=>{
+      if(!groups.length||groups[groups.length-1].date!==t.date){
+        groups.push({date:t.date,label:dateLabel(t.date),rows:[]});
+      }
+      groups[groups.length-1].rows.push(t);
+    });
+    return groups;
+  },[pagedTx]);
   function shiftMonth(dir){setMonthYear(mv=>{let m=mv.month+dir,y=mv.year;if(m<0){m=11;y--;}if(m>11){m=0;y++;}return{month:m,year:y};});}
   const availableYears=useMemo(()=>{const yrs={};transactions.filter(t=>!t._splitParent).forEach(t=>{yrs[new Date(t.date+"T00:00:00").getFullYear()]=1;});yrs[now.getFullYear()]=1;return Object.keys(yrs).map(Number).sort((a,b)=>b-a);},[transactions]);
   const dupGroups=useMemo(()=>{const map={};transactions.filter(t=>!t._splitParent).forEach(t=>{const key=`${t.date}||${Math.abs(t.amount).toFixed(2)}||${t.description.toLowerCase().trim()}`;if(!map[key])map[key]=[];map[key].push(t);});return Object.values(map).filter(g=>g.length>1);},[transactions]);
@@ -2125,7 +2329,7 @@ function App() {
             <div style={{padding:"10px 16px 0",display:"grid",gridTemplateColumns:"1fr",gap:8,alignItems:"center"}}>
               <div style={{position:"relative"}}>
                 <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"#5a5a5a",fontSize:13,pointerEvents:"none"}}>⌕</span>
-                <input className="input-sm" placeholder="Search description, category, note…" value={searchQuery} onChange={e=>{setSearchQuery(e.target.value);setTxPage(0);}} style={{paddingLeft:28,width:"100%"}}/>
+                <input className="input-sm" placeholder="Search description, category, note, date (e.g. March, Mar 15, 2025-03)…" value={searchQuery} onChange={e=>{setSearchQuery(e.target.value);setTxPage(0);}} style={{paddingLeft:28,width:"100%"}}/>
               </div>
             </div>
             <div style={{padding:"8px 16px 10px",display:"flex",gap:8,alignItems:"center",borderBottom:"1px solid #1c1c1c"}}>
@@ -2137,15 +2341,30 @@ function App() {
               </div>
             </div>
             {hasFilters&&(
-              <div style={{padding:"6px 16px",display:"flex",alignItems:"center",gap:8,background:"#111",borderBottom:"1px solid #1c1c1c"}}>
+              <div style={{padding:"6px 16px",display:"flex",alignItems:"center",gap:8,background:"#111",borderBottom:"1px solid #1c1c1c",flexWrap:"wrap"}}>
                 <span style={{fontSize:10,color:"#888888"}}>{filteredTx.length} result{filteredTx.length!==1?"s":""}</span>
-                <button className="btn-ghost" style={{fontSize:10,padding:"2px 8px"}} onClick={clearFilters}>✕ Clear filters</button>
+                {filteredTx.length>0&&(
+                  <span style={{fontSize:10,color:"#555"}}>
+                    {filteredTotals.income>0&&<span style={{color:"#10b981",marginRight:6}}>+{fmt(filteredTotals.income)}</span>}
+                    {filteredTotals.expenses>0&&<span style={{color:"#f43f5e",marginRight:6}}>−{fmt(filteredTotals.expenses)}</span>}
+                    {filteredTotals.income>0&&filteredTotals.expenses>0&&<span style={{color:filteredTotals.net>=0?"#10b981":"#f43f5e"}}>= {filteredTotals.net>=0?"+":""}{fmt(filteredTotals.net)}</span>}
+                  </span>
+                )}
+                <button className="btn-ghost" style={{fontSize:10,padding:"2px 8px",marginLeft:"auto"}} onClick={clearFilters}>✕ Clear filters</button>
               </div>
             )}
             <div style={{fontSize:10,color:"#555555",padding:"5px 16px 8px",letterSpacing:"0.05em",borderBottom:"1px solid #141414"}}>↑ click row to edit &nbsp;·&nbsp; ✦ to create a rule</div>
             <div>
               {filteredTx.length===0&&<div style={{padding:32,textAlign:"center",color:"#5a5a5a",fontSize:13}}>No transactions found.</div>}
-              {pagedTx.map(t=><TxRow key={t.id} t={t} onRemove={removeTx} onEdit={openEditTx} onCreateRule={openCreateRule}/>)}
+              {pagedGroups.map(group=>(
+                <div key={group.date}>
+                  <div style={{padding:"6px 16px 5px",background:"#111",borderBottom:"1px solid #1c1c1c",borderTop:"1px solid #141414",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:2}}>
+                    <span style={{fontSize:9,letterSpacing:"0.12em",color:"#666",textTransform:"uppercase"}}>{group.label}</span>
+                    <span style={{fontSize:9,color:"#3a3a3a"}}>{group.rows.length} item{group.rows.length!==1?"s":""}</span>
+                  </div>
+                  {group.rows.map(t=><TxRow key={t.id} t={t} onRemove={removeTx} onEdit={openEditTx} onCreateRule={openCreateRule}/>)}
+                </div>
+              ))}
             </div>
             {txPageCount>1&&(
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 16px",borderTop:"1px solid #1c1c1c"}}>
@@ -2187,6 +2406,19 @@ function App() {
               <div className="sl">Income vs Expenses — Last 12 Months</div>
               <BarChart transactions={viewTx} currentMonth={monthYear.month} currentYear={monthYear.year} onMonthClick={(m,y)=>setMonthYear({month:m,year:y})}/>
             </div>
+            {monthlyTx.length===0&&(
+              <div className="card fade-in" style={{padding:"40px 28px",marginBottom:16,textAlign:"center"}}>
+                <div style={{fontSize:28,marginBottom:12}}>📭</div>
+                <div style={{fontSize:14,color:"#999",marginBottom:6,fontWeight:500}}>{MONTHS[monthYear.month]} {monthYear.year} has no transactions</div>
+                <div style={{fontSize:12,color:"#555",marginBottom:20,lineHeight:1.7}}>
+                  Import a bank statement or add transactions manually<br/>to start tracking this month.
+                </div>
+                <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
+                  <button className="btn btn-primary" style={{padding:"9px 20px",fontSize:12}} onClick={()=>{setShowAddMenu(false);setActiveTab("transactions");setTimeout(()=>{setShowImport(true);resetImport();},50);}}>↑ Import Statement</button>
+                  <button className="btn btn-secondary" style={{padding:"9px 20px",fontSize:12}} onClick={()=>{setActiveTab("transactions");setTimeout(()=>setShowForm(true),50);}}>+ Add Manually</button>
+                </div>
+              </div>
+            )}
             {(Object.keys(monthlyStats.byCat).length>0||Object.keys(monthlyStats.byIncomeCat).length>0)&&(
               <div className="card" style={{padding:20,marginBottom:16}}>
                 <div style={{display:"flex",gap:32,flexWrap:"wrap"}}>
@@ -2641,14 +2873,14 @@ function App() {
         const splitComplete=editSplits.length>=2&&editSplits.every(sp=>sp.category&&sp.subcategory)&&splitBalanced;
         const canSave=editSplitMode?splitComplete:(editForm.description&&editForm.amount&&editForm.category&&editForm.subcategory);
         return(
-          <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)closeEditTx();}}>
+          <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)maybeCloseEditTx();}}>
             <div className="modal-box" style={{background:"#181818",border:"1px solid #2e2e2e",borderRadius:16,width:"100%",maxWidth:500,overflow:"hidden",boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
               <div style={{padding:"18px 22px 14px",borderBottom:"1px solid #222",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>
                   <div style={{fontSize:10,letterSpacing:"0.2em",color:"#737373",textTransform:"uppercase",marginBottom:4}}>Edit Transaction</div>
                   <div style={{fontSize:12,color:"#888888",maxWidth:360,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{editingTx.description}</div>
                 </div>
-                <button className="btn-danger" style={{fontSize:20,padding:"4px 10px"}} onClick={closeEditTx}>×</button>
+                <button className="btn-danger" style={{fontSize:20,padding:"4px 10px"}} onClick={maybeCloseEditTx}>×</button>
               </div>
               <div style={{padding:"18px 22px",display:"grid",gap:14}}>
                 <div>
@@ -2692,6 +2924,9 @@ function App() {
                       <option value="">— Select —</option>{editSubcats.map(s=><option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
+                </div>
+                <div style={{marginTop:-6}}>
+                  <button className="btn-ghost" style={{fontSize:10,padding:"3px 10px"}} onClick={()=>setQuickAddTaxCtx({typeHint:editForm.typeFilter, onAdded:(entry)=>{handleEditCatChange(entry.category);setEditForm(f=>({...f,subcategory:entry.subcategory}));}})}>＋ Add Category / Subcategory</button>
                 </div>
                 {/* Split toggle */}
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"#111",borderRadius:8,border:"1px solid "+(editSplitMode?"#8b5cf644":"#1e1e1e")}}>
@@ -2810,6 +3045,9 @@ function App() {
                       <option value="">— Select —</option>{reviewSubcats.map(s=><option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
+                </div>
+                <div style={{marginTop:-6}}>
+                  <button className="btn-ghost" style={{fontSize:10,padding:"3px 10px"}} onClick={()=>setQuickAddTaxCtx({typeHint:ed.typeFilter, onAdded:(entry)=>{const subs=getSubcats(taxonomy,entry.category,ed.typeFilter);setReviewEdit(item,{category:entry.category,subcategory:entry.subcategory||subs[0]||""});}})}>＋ Add Category / Subcategory</button>
                 </div>
                 {/* Split toggle */}
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"#111",borderRadius:8,border:"1px solid "+(reviewSplitMode?"#8b5cf644":"#1e1e1e")}}>
@@ -3114,6 +3352,18 @@ function App() {
       })()}
       {createRuleTx&&(
         <CreateRuleModal tx={createRuleTx} taxonomy={taxonomy} onSave={saveCreatedRule} onCancel={()=>setCreateRuleTx(null)}/>
+      )}
+      {quickAddTaxCtx&&(
+        <QuickAddTaxModal
+          typeHint={quickAddTaxCtx.typeHint}
+          taxonomy={taxonomy}
+          allCats={allCats}
+          onAdd={entry=>{
+            addTaxEntryDirect(entry);
+            quickAddTaxCtx.onAdded(entry);
+            setQuickAddTaxCtx(null);
+          }}
+          onCancel={()=>setQuickAddTaxCtx(null)}/>
       )}
       {editingRuleIdx!==null&&(
         <EditRuleModal rule={editingRuleVal} taxonomy={taxonomy}
