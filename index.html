@@ -87,6 +87,14 @@
     @keyframes modalIn { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
     .modal-overlay { position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: rgba(0,0,0,0.76); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; overflow-y: auto; }
     .modal-box { animation: modalIn 0.18s ease; }
+    .nav-footer { position: fixed; bottom: 0; left: 0; right: 0; background: #111; border-top: 1px solid #222; display: flex; align-items: stretch; z-index: 200; height: 60px; }
+    .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; border: none; background: transparent; font-family: inherit; color: #606060; transition: color 0.15s, background 0.15s; padding: 8px 4px; }
+    .nav-item:hover { color: #999; background: #161616; }
+    .nav-item.nav-active { color: #e8e0d5; }
+    .nav-item.nav-add { color: #0d0d0d; background: #e8e0d5; border-radius: 0; }
+    .nav-item.nav-add:hover { background: #fff; color: #0d0d0d; }
+    .nav-icon { font-size: 18px; line-height: 1; }
+    .nav-label { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
   </style>
 </head>
 <body>
@@ -760,8 +768,34 @@ function SplitEditor({ total, splits, onChange, taxonomy, cats, typeFilter }) {
     onChange([...splits,{id:Date.now()+Math.random(),amount:fillAmt,category:"",subcategory:""}]);
   }
 
+  // Slider: only shown when exactly 2 splits and total > 0
+  const showSlider = splits.length===2 && total>0;
+  const sliderPct  = showSlider ? Math.round(((parseFloat(splits[0].amount)||0)/total)*100) : 50;
+
+  function handleSlider(pct) {
+    const a = Math.round(total*(pct/100)*100)/100;
+    const b = Math.round((total-a)*100)/100;
+    onChange([
+      {...splits[0], amount: a>0?a.toFixed(2):""},
+      {...splits[1], amount: b>0?b.toFixed(2):""},
+    ]);
+  }
+
   return(
     <div>
+      {/* Slider for 2-split case */}
+      {showSlider&&(
+        <div style={{marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#888",marginBottom:5}}>
+            <span style={{color:"#a78bfa"}}>{fmt(parseFloat(splits[0].amount)||0)}</span>
+            <span style={{color:"#555",fontSize:9}}>{sliderPct}% · {100-sliderPct}%</span>
+            <span style={{color:"#a78bfa"}}>{fmt(parseFloat(splits[1].amount)||0)}</span>
+          </div>
+          <input type="range" min={1} max={99} value={sliderPct}
+            onChange={e=>handleSlider(parseInt(e.target.value))}
+            style={{width:"100%",accentColor:"#8b5cf6",cursor:"pointer",height:4}}/>
+        </div>
+      )}
       <div style={{display:"grid",gridTemplateColumns:"80px 1fr 1fr 28px",gap:7,marginBottom:4}}>
         <div style={LBL}>Amount</div>
         <div style={LBL}>Category</div>
@@ -773,7 +807,15 @@ function SplitEditor({ total, splits, onChange, taxonomy, cats, typeFilter }) {
         return(
           <div key={sp.id} style={{display:"grid",gridTemplateColumns:"80px 1fr 1fr 28px",gap:7,marginBottom:7,alignItems:"center"}}>
             <input className="input" type="number" step="0.01" min="0.01" placeholder="0.00"
-              value={sp.amount} onChange={e=>update(sp.id,{amount:e.target.value})}
+              value={sp.amount} onChange={e=>{
+                update(sp.id,{amount:e.target.value});
+                // Sync second split when editing first in 2-split mode
+                if(showSlider&&sp.id===splits[0].id){
+                  const a=parseFloat(e.target.value)||0;
+                  const b=Math.max(0,Math.round((total-a)*100)/100);
+                  onChange([{...splits[0],amount:e.target.value},{...splits[1],amount:b>0?b.toFixed(2):""}]);
+                }
+              }}
               style={{padding:"8px 10px",fontSize:12}}/>
             <select className="input" value={sp.category} style={{padding:"8px 10px",fontSize:12}}
               onChange={e=>{const c=e.target.value;const s=c?getSubs(c):[];update(sp.id,{category:c,subcategory:s[0]||""});}}>
@@ -799,7 +841,199 @@ function SplitEditor({ total, splits, onChange, taxonomy, cats, typeFilter }) {
   );
 }
 
-// ── TaxPanel ─────────────────────────────────────────────────────────────────
+// ── LineChart ─────────────────────────────────────────────────────────────────
+function LineChart({ transactions, month, year, taxonomy }) {
+  const [selCat, setSelCat] = useState("__all__");
+  const [selSub, setSelSub] = useState("__all__");
+
+  // Categories that have expense transactions this month
+  const expCats = useMemo(() => {
+    const seen = new Set();
+    transactions.forEach(t => {
+      if (t.type === "expense") seen.add(t.category);
+    });
+    return [...seen].sort();
+  }, [transactions]);
+
+  // Subcategories for selected category
+  const subOptions = useMemo(() => {
+    if (selCat === "__all__") return [];
+    const seen = new Set();
+    transactions.forEach(t => {
+      if (t.type === "expense" && t.category === selCat) seen.add(t.subcategory);
+    });
+    return [...seen].sort();
+  }, [transactions, selCat]);
+
+  // Reset sub when cat changes
+  const handleCatChange = (cat) => { setSelCat(cat); setSelSub("__all__"); };
+
+  // Days in month
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+  // Cumulative spend per day
+  const dailyTotals = useMemo(() => {
+    const byDay = {};
+    transactions.forEach(t => {
+      if (t.type !== "expense") return;
+      const d = new Date(t.date + "T00:00:00");
+      if (d.getMonth() !== month || d.getFullYear() !== year) return;
+      if (selCat !== "__all__" && t.category !== selCat) return;
+      if (selSub !== "__all__" && t.subcategory !== selSub) return;
+      const day = d.getDate();
+      byDay[day] = (byDay[day] || 0) + Math.abs(t.amount);
+    });
+    // Build cumulative
+    let running = 0;
+    return days.map(d => {
+      running += byDay[d] || 0;
+      return { day: d, cumulative: running, daily: byDay[d] || 0 };
+    });
+  }, [transactions, month, year, selCat, selSub, daysInMonth]);
+
+  const maxVal = Math.max(...dailyTotals.map(d => d.cumulative), 1);
+  const minVal = 0;
+  const hasData = dailyTotals.some(d => d.daily > 0);
+
+  // Nice axis ticks
+  function niceTicks(max, count = 5) {
+    if (max <= 0) return [0];
+    const rough = max / (count - 1);
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rough)));
+    const nice = [1, 2, 2.5, 5, 10].map(f => f * magnitude)
+      .find(f => f >= rough) || magnitude * 10;
+    const niceMax = Math.ceil(max / nice) * nice;
+    const ticks = [];
+    for (let v = 0; v <= niceMax + nice * 0.01; v += nice) ticks.push(v);
+    return ticks;
+  }
+
+  function fmtTick(v) {
+    if (v >= 1000000) return "$" + (v / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
+    if (v >= 1000) return "$" + (v / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+    return "$" + Math.round(v);
+  }
+
+  const yTicks = niceTicks(maxVal);
+  const chartMax = yTicks[yTicks.length - 1];
+
+  // SVG dims
+  const W = 660, H = 180, PL = 52, PB = 28, PT = 16, PR = 16;
+  const cW = W - PL - PR, cH = H - PB - PT;
+
+  const xPx = d => PL + ((d - 1) / Math.max(daysInMonth - 1, 1)) * cW;
+  const yPx = v => PT + cH - (v / chartMax) * cH;
+
+  // Build SVG path
+  const activePoints = dailyTotals.filter(d => true); // all days
+  const pathD = activePoints.map((d, i) =>
+    (i === 0 ? "M" : "L") + xPx(d.day).toFixed(1) + " " + yPx(d.cumulative).toFixed(1)
+  ).join(" ");
+
+  // Area fill path
+  const areaD = pathD +
+    ` L${xPx(daysInMonth).toFixed(1)} ${(PT + cH).toFixed(1)}` +
+    ` L${xPx(1).toFixed(1)} ${(PT + cH).toFixed(1)} Z`;
+
+  // X-axis ticks — show every 5 days, always show 1 and last
+  const xTickDays = days.filter(d => d === 1 || d === daysInMonth || d % 5 === 0);
+
+  // Hover state
+  const [hovDay, setHovDay] = useState(null);
+  const hovData = hovDay !== null ? dailyTotals.find(d => d.day === hovDay) : null;
+
+  // Line color based on selection
+  const lineColor = selCat === "__all__" ? "#f43f5e" : catColor(selCat);
+  const lineLabel = selCat === "__all__" ? "All Expenses"
+    : selSub !== "__all__" ? selSub : selCat;
+
+  return (
+    <div>
+      {/* Controls */}
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+        <select className="month-select" value={selCat} onChange={e=>handleCatChange(e.target.value)}
+          style={{fontSize:11,padding:"5px 10px"}}>
+          <option value="__all__">All Categories</option>
+          {expCats.map(c=><option key={c} value={c}>{c}</option>)}
+        </select>
+        {selCat!=="__all__"&&subOptions.length>1&&(
+          <select className="month-select" value={selSub} onChange={e=>setSelSub(e.target.value)}
+            style={{fontSize:11,padding:"5px 10px"}}>
+            <option value="__all__">All Subcategories</option>
+            {subOptions.map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
+        <div style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto"}}>
+          <div style={{width:12,height:3,borderRadius:2,background:lineColor}}/>
+          <span style={{fontSize:10,color:"#888"}}>{lineLabel}</span>
+        </div>
+      </div>
+
+      {!hasData ? (
+        <div style={{textAlign:"center",padding:"28px 0",color:"#5a5a5a",fontSize:12}}>
+          No expense data for {MONTHS[month]} {year}{selCat!=="__all__"?" in "+lineLabel:""}.
+        </div>
+      ) : (
+        <div style={{overflowX:"auto"}}>
+          <svg width="100%" viewBox={`0 0 ${W} ${H}`}
+            style={{display:"block",fontFamily:"DM Mono,monospace",overflow:"visible"}}
+            onMouseLeave={()=>setHovDay(null)}>
+
+            {/* Grid lines */}
+            {yTicks.map((v,i)=>{
+              const yy=yPx(v);
+              return(
+                <g key={i}>
+                  <line x1={PL} x2={W-PR} y1={yy} y2={yy} stroke="#1e1e1e" strokeWidth="1"/>
+                  <text x={PL-5} y={yy+3.5} textAnchor="end" fill="#444" fontSize="8.5">{fmtTick(v)}</text>
+                </g>
+              );
+            })}
+
+            {/* X axis */}
+            <line x1={PL} x2={W-PR} y1={PT+cH} y2={PT+cH} stroke="#252525" strokeWidth="1"/>
+            {xTickDays.map(d=>(
+              <text key={d} x={xPx(d)} y={H-PB+12} textAnchor="middle" fill="#444" fontSize="8">{d}</text>
+            ))}
+
+            {/* Area fill */}
+            <path d={areaD} fill={lineColor} opacity="0.07"/>
+
+            {/* Line */}
+            <path d={pathD} fill="none" stroke={lineColor} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
+
+            {/* Invisible hit zones per day */}
+            {days.map(d=>(
+              <rect key={d}
+                x={xPx(d)-(cW/daysInMonth/2)} width={cW/daysInMonth}
+                y={PT} height={cH}
+                fill="transparent"
+                onMouseEnter={()=>setHovDay(d)}/>
+            ))}
+
+            {/* Hover dot + tooltip */}
+            {hovData&&(()=>{
+              const cx=xPx(hovData.day),cy=yPx(hovData.cumulative);
+              const tipW=120,tipH=hovData.daily>0?46:32;
+              const tipX=cx+tipW+10>W-PR?cx-tipW-6:cx+8;
+              const tipY=Math.max(PT,cy-tipH/2);
+              return(
+                <g style={{pointerEvents:"none"}}>
+                  <circle cx={cx} cy={cy} r={4} fill={lineColor} stroke="#181818" strokeWidth="2"/>
+                  <rect x={tipX} y={tipY} width={tipW} height={tipH} fill="#242424" stroke="#444" strokeWidth="0.75" rx="5"/>
+                  <text x={tipX+8} y={tipY+12} fill="#888" fontSize="8">{MONTHS[month].slice(0,3)+" "+hovData.day+", "+year}</text>
+                  <text x={tipX+8} y={tipY+25} fill={lineColor} fontSize="9" fontWeight="600">{"∑ "+fmt(hovData.cumulative)}</text>
+                  {hovData.daily>0&&<text x={tipX+8} y={tipY+38} fill="#888" fontSize="8">{"+"+fmt(hovData.daily)+" today"}</text>}
+                </g>
+              );
+            })()}
+          </svg>
+        </div>
+      )}
+    </div>
+  );
+}
 function TaxPanel({ panelType, taxonomy, collapsedCats, setCollapsedCats,
   editingTaxIdx, editingTaxVal, setEditingTaxIdx, setEditingTaxVal, editingTaxSubcats,
   dragTaxIdx, setDragTaxIdx, dragOverTaxIdx, setDragOverTaxIdx,
@@ -1241,6 +1475,9 @@ function App() {
   const [dupWarning, setDupWarning]         = useState(false);
   const [showDupScanner, setShowDupScanner]   = useState(false);
   const [showSplitParents, setShowSplitParents] = useState(false);
+  const [showMonthly, setShowMonthly]         = useState(false);
+  const [showSettings, setShowSettings]       = useState(false);
+  const [dhView, setDhView]                   = useState(null); // null|"dupes"|"origins"
   const [quickAddTaxCtx, setQuickAddTaxCtx]   = useState(null); // null | { typeHint, onAdded(entry) }
   const [editSplitMode, setEditSplitMode]   = useState(false);
   const [editSplits, setEditSplits]         = useState([]);
@@ -1313,7 +1550,6 @@ function App() {
   }
   function obFinish(){
     setIsNewUser(false);
-    setActiveTab("transactions");
   }
 
   // ── Persist ───────────────────────────────────────────────────────────────
@@ -1347,8 +1583,9 @@ function App() {
         if (createRuleTx)            { setCreateRuleTx(null); return; }
         if (editingRuleIdx!==null)   { setEditingRuleIdx(null); setEditingRuleVal({}); return; }
         if (editingTx)               { maybeCloseEditTx(); return; }
-        if (unmatchedQueue.length>0) { dismissReviewQueue(); return; }
-        if (isNewUser)               return; // don't close onboarding
+        if (quickAddTaxCtx)          { setQuickAddTaxCtx(null); return; }
+        if (showSettings)            { setShowSettings(false); return; }
+        if (isNewUser)               return;
         if (showForm)                { setShowForm(false); setAmountError(""); setDupWarning(false); return; }
         if (showImport)              { setShowImport(false); resetImport(); return; }
         if (showAddMenu)             { setShowAddMenu(false); return; }
@@ -1356,7 +1593,7 @@ function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [confirmModal, createRuleTx, editingRuleIdx, editingTx, unmatchedQueue, isNewUser, showForm, showImport, showAddMenu]);
+  }, [confirmModal, createRuleTx, editingRuleIdx, editingTx, quickAddTaxCtx, showSettings, isNewUser, showForm, showImport, showAddMenu]);
 
   // ── Auto-focus description when add form opens ────────────────────────────
   useEffect(()=>{
@@ -1627,7 +1864,7 @@ function App() {
   const monthlyTx    = useMemo(()=>viewTx.filter(t=>txInMonth(t,monthYear.month,monthYear.year)),[viewTx,monthYear]);
   const allStats     = useMemo(()=>calcStats(viewTx),[viewTx]);
   const monthlyStats = useMemo(()=>calcStats(monthlyTx),[monthlyTx]);
-  const stats        = activeTab==="monthly"?monthlyStats:allStats;
+  const stats        = showMonthly?monthlyStats:allStats;
   const maxCatVal    = useMemo(()=>Math.max(...Object.values(stats.byCat).map(c=>c.total),1),[stats]);
   const filteredTx   = useMemo(()=>{
     const q=searchQuery.trim().toLowerCase();
@@ -1994,32 +2231,18 @@ function App() {
   const monthLabel  = MONTHS[monthYear.month].slice(0,3);
   const acctLabel   = selectedAccountId===null?"All":selectedAccountId==="__unlinked__"?"Unlinked":(accounts.find(a=>a.id===selectedAccountId)?.name||"Account");
   const statsPrefix = acctLabel==="All"?"":acctLabel+" · ";
-  const statsLabels = activeTab==="monthly"
+  const statsLabels = showMonthly
     ?[statsPrefix+monthLabel+" Income", statsPrefix+monthLabel+" Expenses", statsPrefix+monthLabel+" Balance"]
     :[statsPrefix+"Income", statsPrefix+"Expenses", statsPrefix+"Balance"];
 
   return (
-    <div style={{minHeight:"100vh",padding:"32px 16px"}}>
+    <div style={{minHeight:"100vh",padding:"16px 16px 76px"}}>
       <div style={{maxWidth:720,margin:"0 auto"}}>
 
         {/* Header */}
-        <div style={{marginBottom:28,display:"flex",justifyContent:"space-between",alignItems:"flex-end",flexWrap:"wrap",gap:12}}>
+        <div style={{marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
           <div>
-            <div style={{fontSize:10,letterSpacing:"0.22em",color:"#737373",marginBottom:4,textTransform:"uppercase"}}>Personal Finance</div>
-            <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:"clamp(26px,5vw,40px)",fontWeight:900,lineHeight:1,color:"#e8e0d5"}}>Budget<br/><span style={{color:"#606060"}}>Tracker.</span></h1>
-          </div>
-          <div style={{position:"relative"}}>
-            {(showForm||showImport)?(
-              <button className="btn btn-secondary" onClick={()=>{setShowForm(false);setShowImport(false);resetImport();setAmountError("");setShowAddMenu(false);}}>✕ Cancel</button>
-            ):(
-              <button className="btn btn-primary" onClick={()=>setShowAddMenu(v=>!v)}>+ Add ▾</button>
-            )}
-            {showAddMenu&&!showForm&&!showImport&&(
-              <div style={{position:"absolute",right:0,top:"calc(100% + 6px)",background:"#1a1a1a",border:"1px solid #2a2a2a",borderRadius:10,padding:6,zIndex:100,display:"flex",flexDirection:"column",gap:4,minWidth:160,boxShadow:"0 8px 24px #00000066"}}>
-                <button className="btn-ghost" style={{textAlign:"left",padding:"9px 14px",fontSize:12,borderRadius:7}} onClick={()=>{setShowForm(true);setShowAddMenu(false);}}>✎ &nbsp;Manual Entry</button>
-                <button className="btn-ghost" style={{textAlign:"left",padding:"9px 14px",fontSize:12,borderRadius:7}} onClick={()=>{resetImport();setShowImport(true);setShowAddMenu(false);}}>↑ &nbsp;Import File</button>
-              </div>
-            )}
+            <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:900,lineHeight:1,color:"#e8e0d5",whiteSpace:"nowrap"}}>Budget <span style={{color:"#606060"}}>Tracker.</span></h1>
           </div>
         </div>
 
@@ -2039,7 +2262,7 @@ function App() {
                     <div>
                       <div style={{fontSize:12,color:"#bbbbbb",marginBottom:6}}>No accounts set up yet</div>
                       <div style={{fontSize:11,color:"#737373",lineHeight:1.6}}>Add your bank accounts first in <strong style={{color:"#999999"}}>⚙ Edit → Accounts</strong>, then come back to import.</div>
-                      <button className="btn btn-secondary" style={{marginTop:10,fontSize:11,padding:"5px 14px"}} onClick={()=>{setShowImport(false);resetImport();setActiveTab("edit");setEditSub("accounts");}}>Go to Accounts →</button>
+                      <button className="btn btn-secondary" style={{marginTop:10,fontSize:11,padding:"5px 14px"}} onClick={()=>{setShowImport(false);resetImport();setShowSettings(true);setEditSub("accounts");}}>Go to Accounts →</button>
                     </div>
                   </div>
                 ):(
@@ -2246,6 +2469,111 @@ function App() {
           </div>
         )}
 
+        {/* ── Inline Unmatched Review ── */}
+        {unmatchedQueue.length>0&&(()=>{
+          const item=unmatchedQueue[reviewIdx]||unmatchedQueue[0];
+          const ed=reviewEdit(item);
+          const reviewCats=ed.typeFilter==="income"?incomeCats:expenseCats;
+          const reviewSubcats=ed.category?getSubcats(taxonomy,ed.category,ed.typeFilter):[];
+          const sourceLabel=item.accountName?item.accountName:item.source==="chequing"?"🏦 Chequing":item.source==="credit"?"💳 Credit Card":item.source==="savings"?"🪙 Savings":"📄 Generic";
+          const amtColor=item.amount>=0?"#10b981":"#f43f5e";
+          const total=unmatchedQueue.length,pos=(reviewIdx||0)+1;
+          const patternSuggestions=generatePatternSuggestions(item.description);
+          const readyToSave=ed.category&&ed.subcategory;
+          const rSplitSum=reviewSplits.reduce((s,sp)=>s+(parseFloat(sp.amount)||0),0);
+          const rSplitReady=reviewSplitMode&&reviewSplits.length>=2&&reviewSplits.every(sp=>sp.category&&sp.subcategory)&&Math.abs(rSplitSum-Math.abs(item.amount))<0.005;
+          const canSaveReview=reviewSplitMode?rSplitReady:readyToSave;
+          return(
+            <div className="card fade-in" style={{marginBottom:16,border:"1px solid #3b82f633"}}>
+              <div style={{padding:"12px 16px",borderBottom:"1px solid #1e1e1e",display:"flex",justifyContent:"space-between",alignItems:"center",background:"#0f1a24"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:11,color:"#3b82f6",fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase"}}>↺ Unmatched</span>
+                  <span style={{fontSize:11,color:"#5a5a5a"}}>{pos} of {total} — assign a category to save</span>
+                </div>
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  {total>1&&unmatchedQueue.map((q,i)=>(
+                    <button key={q.id} onClick={()=>setReviewIdx(i)} style={{width:7,height:7,borderRadius:"50%",border:"none",cursor:"pointer",padding:0,background:i===(reviewIdx||0)?"#3b82f6":"#2e2e2e",transition:"background 0.15s"}}/>
+                  ))}
+                  <button className="btn-ghost" style={{fontSize:10,padding:"2px 8px",marginLeft:6}} onClick={dismissReviewQueue} title="Dismiss all">✕ Dismiss all</button>
+                </div>
+              </div>
+              <div style={{padding:"14px 16px",borderBottom:"1px solid #1a1a1a",display:"flex",gap:14,alignItems:"flex-start",flexWrap:"wrap"}}>
+                <div style={{flex:"1 1 200px",minWidth:0}}>
+                  <div style={{fontSize:11,color:"#737373",marginBottom:4,display:"flex",gap:8,flexWrap:"wrap"}}>
+                    <span style={{background:"#1e1e1e",borderRadius:4,padding:"2px 8px",fontSize:10,color:"#bbbbbb"}}>{sourceLabel}</span>
+                    <span>{item.date}</span>
+                  </div>
+                  <div style={{fontSize:14,fontWeight:500,color:"#ddd",lineHeight:1.4,wordBreak:"break-all"}}>{item.description}</div>
+                </div>
+                <div style={{fontSize:20,fontWeight:500,color:amtColor,whiteSpace:"nowrap",flexShrink:0}}>{item.amount>=0?"+":""}{fmt(Math.abs(item.amount))}</div>
+              </div>
+              <div style={{padding:"14px 16px",display:"grid",gap:12}}>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {["expense","income","notreported"].map(tf=>(
+                    <button key={tf} className={"btn chip "+(ed.typeFilter===tf?"chip-active":"chip-inactive")} style={{fontSize:11}} onClick={()=>setReviewEdit(item,{typeFilter:tf,category:"",subcategory:""})}>
+                      {tf==="notreported"?"Not Reported":tf[0].toUpperCase()+tf.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div>
+                    <div style={{fontSize:9,color:"#737373",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:5}}>Category</div>
+                    <select className="input" value={ed.category} disabled={reviewSplitMode} onChange={e=>{const cat=e.target.value,subs=cat?getSubcats(taxonomy,cat,ed.typeFilter):[];setReviewEdit(item,{category:cat,subcategory:subs[0]||""});}}>
+                      <option value="">— Select —</option>{reviewCats.map(c=><option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{fontSize:9,color:"#737373",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:5}}>Subcategory</div>
+                    <select className="input" value={ed.subcategory} disabled={!ed.category||reviewSplitMode} onChange={e=>setReviewEdit(item,{subcategory:e.target.value})}>
+                      <option value="">— Select —</option>{reviewSubcats.map(s=><option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div style={{marginTop:-4}}>
+                  <button className="btn-ghost" style={{fontSize:10,padding:"3px 10px"}} onClick={()=>setQuickAddTaxCtx({typeHint:ed.typeFilter,onAdded:(entry)=>{const subs=getSubcats(taxonomy,entry.category,ed.typeFilter);setReviewEdit(item,{category:entry.category,subcategory:entry.subcategory||subs[0]||""});}})}>＋ Add Category / Subcategory</button>
+                </div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:"#111",borderRadius:8,border:"1px solid "+(reviewSplitMode?"#8b5cf644":"#1e1e1e")}}>
+                  <div style={{fontSize:11,color:reviewSplitMode?"#a78bfa":"#666",fontWeight:500}}>⊕ Split transaction</div>
+                  <button onClick={()=>{if(!reviewSplitMode){setReviewSplits([{id:Date.now()+1,amount:Math.abs(item.amount).toFixed(2),category:ed.category||"",subcategory:ed.subcategory||""},{id:Date.now()+2,amount:"",category:"",subcategory:""}]);}setReviewSplitMode(v=>!v);}} style={{padding:"4px 12px",borderRadius:8,border:"1px solid "+(reviewSplitMode?"#8b5cf688":"#2a2a2a"),background:reviewSplitMode?"#8b5cf618":"transparent",color:reviewSplitMode?"#a78bfa":"#555",fontSize:11,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
+                    {reviewSplitMode?"✕ Cancel":"Split"}
+                  </button>
+                </div>
+                {reviewSplitMode&&(
+                  <div style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:8,padding:"12px 14px"}}>
+                    <SplitEditor total={Math.abs(item.amount)} splits={reviewSplits} onChange={setReviewSplits} taxonomy={taxonomy} cats={reviewCats} typeFilter={ed.typeFilter}/>
+                  </div>
+                )}
+                {!reviewSplitMode&&readyToSave&&(
+                  <div className="remember-box">
+                    <label style={{display:"flex",alignItems:"center",gap:9,cursor:"pointer"}}>
+                      <input type="checkbox" checked={reviewRemember} onChange={e=>{setReviewRemember(e.target.checked);setReviewPatternIdx(0);}} style={{accentColor:"#8b5cf6",width:14,height:14,cursor:"pointer"}}/>
+                      <span style={{fontSize:12,color:reviewRemember?"#bbb":"#555"}}>Remember this pattern for future imports</span>
+                    </label>
+                    {reviewRemember&&patternSuggestions.length>0&&(
+                      <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:5}}>
+                        <div style={{fontSize:9,color:"#737373",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:2}}>Match using</div>
+                        {patternSuggestions.map((s,i)=>(
+                          <label key={i} style={{display:"flex",alignItems:"center",gap:9,cursor:"pointer"}} onClick={()=>setReviewPatternIdx(i)}>
+                            <div style={{width:12,height:12,borderRadius:"50%",border:"1px solid "+(reviewPatternIdx===i?"#8b5cf6":"#333"),background:reviewPatternIdx===i?"#8b5cf6":"transparent",flexShrink:0}}/>
+                            <span style={{fontSize:9,color:"#888",textTransform:"uppercase",letterSpacing:"0.08em",width:46,flexShrink:0}}>{s.label}</span>
+                            <code style={{fontSize:11,color:"#8b5cf6"}}>{s.pattern}</code>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div style={{display:"flex",gap:8}}>
+                  <button className="btn btn-primary" style={{flex:1,padding:11,opacity:canSaveReview?1:0.4,cursor:canSaveReview?"pointer":"not-allowed"}} onClick={()=>commitReviewItem(item)}>
+                    {reviewSplitMode?"Split & Save →":"Save & Next →"}
+                  </button>
+                  <button className="btn-ghost" style={{padding:"10px 18px"}} onClick={()=>skipReviewItem(item)}>Skip</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Account selector bar */}
         {(()=>{
           const unlinkedCount=transactions.filter(t=>!t._splitParent&&!t.accountId).length;
@@ -2274,13 +2602,13 @@ function App() {
         })()}
 
         {/* Stats */}
-        {(()=>{
+        {activeTab!=="categories"&&activeTab!=="settings"&&(()=>{
           const basecards=[
             {label:statsLabels[0],display:fmt(stats.income),  color:"#10b981"},
             {label:statsLabels[1],display:fmt(stats.expenses),color:"#f43f5e"},
             {label:statsLabels[2],display:fmt(stats.balance), color:stats.balance>=0?"#10b981":"#f43f5e"},
           ];
-          if(activeTab==="monthly"){
+          if(showMonthly){
             const expTx=monthlyTx.filter(t=>t.type==="expense");
             const avgExp=expTx.length>0?monthlyStats.expenses/expTx.length:0;
             const savRate=monthlyStats.income>0?(monthlyStats.income-monthlyStats.expenses)/monthlyStats.income*100:0;
@@ -2308,16 +2636,14 @@ function App() {
           );
         })()}
 
-        {/* Tabs */}
-        <div style={{display:"flex",gap:4,marginBottom:16,flexWrap:"wrap"}}>
-          {[["transactions","Transactions"],["monthly","Monthly"],["edit","⚙ Edit"]].map(([key,label])=>(
-            <button key={key} className={"tab "+(activeTab===key?"tab-active":"tab-inactive")} onClick={()=>setActiveTab(key)}>{label}</button>
-          ))}
-        </div>
-
         {/* ── TRANSACTIONS TAB ── */}
         {activeTab==="transactions"&&(
-          <div className="card" style={{marginBottom:20}}>
+          <div>
+            <div className="card" style={{padding:20,marginBottom:16}}>
+              <div className="sl">Income vs Expenses — Last 12 Months</div>
+              <BarChart transactions={viewTx} currentMonth={monthYear.month} currentYear={monthYear.year} onMonthClick={(m,y)=>setMonthYear({month:m,year:y})}/>
+            </div>
+            <div className="card" style={{marginBottom:20}}>
             <div style={{padding:"14px 16px 0",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
               <div className="sl" style={{marginBottom:0}}>All Transactions</div>
               <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
@@ -2383,12 +2709,13 @@ function App() {
                 <button className="btn-icon" style={{opacity:txPage===txPageCount-1?0.25:1,cursor:txPage===txPageCount-1?"not-allowed":"pointer"}} onClick={()=>{if(txPage<txPageCount-1)setTxPage(p=>p+1);}} disabled={txPage===txPageCount-1}>→</button>
               </div>
             )}
+            </div>
           </div>
         )}
 
-        {/* ── MONTHLY TAB ── */}
-        {activeTab==="monthly"&&(
+        {activeTab==="summary"&&(
           <div className="fade-in">
+            {/* Month / Year selector */}
             <div className="card" style={{padding:"14px 20px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
               <button className="btn-icon" onClick={()=>shiftMonth(-1)}>←</button>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -2402,10 +2729,24 @@ function App() {
               <button className="btn-icon" onClick={()=>shiftMonth(1)}>→</button>
             </div>
 
-            <div className="card" style={{padding:20,marginBottom:16}}>
-              <div className="sl">Income vs Expenses — Last 12 Months</div>
-              <BarChart transactions={viewTx} currentMonth={monthYear.month} currentYear={monthYear.year} onMonthClick={(m,y)=>setMonthYear({month:m,year:y})}/>
-            </div>
+            {/* Month stats strip */}
+            {(()=>{
+              const net=monthlyStats.income-monthlyStats.expenses;
+              const savRate=monthlyStats.income>0?net/monthlyStats.income*100:null;
+              return(
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+                  <div className="stat-card"><div style={{fontSize:10,letterSpacing:"0.12em",color:"#737373",textTransform:"uppercase",marginBottom:5}}>Income</div><div style={{fontSize:"clamp(11px,2vw,17px)",fontWeight:500,color:"#10b981"}}>{fmt(monthlyStats.income)}</div></div>
+                  <div className="stat-card"><div style={{fontSize:10,letterSpacing:"0.12em",color:"#737373",textTransform:"uppercase",marginBottom:5}}>Expenses</div><div style={{fontSize:"clamp(11px,2vw,17px)",fontWeight:500,color:"#f43f5e"}}>{fmt(monthlyStats.expenses)}</div></div>
+                  <div className="stat-card"><div style={{fontSize:10,letterSpacing:"0.12em",color:"#737373",textTransform:"uppercase",marginBottom:5}}>{savRate!==null?"Savings Rate":"Net"}</div><div style={{fontSize:"clamp(11px,2vw,17px)",fontWeight:500,color:net>=0?"#10b981":"#f43f5e"}}>{savRate!==null?savRate.toFixed(1)+"%":fmt(net)}</div></div>
+                </div>
+              );
+            })()}
+            {monthlyTx.filter(t=>t.type==="expense").length>0&&(
+              <div className="card" style={{padding:20,marginBottom:16}}>
+                <div className="sl">Cumulative Expenses — {MONTHS[monthYear.month]} {monthYear.year}</div>
+                <LineChart transactions={monthlyTx} month={monthYear.month} year={monthYear.year} taxonomy={taxonomy}/>
+              </div>
+            )}
             {monthlyTx.length===0&&(
               <div className="card fade-in" style={{padding:"40px 28px",marginBottom:16,textAlign:"center"}}>
                 <div style={{fontSize:28,marginBottom:12}}>📭</div>
@@ -2414,8 +2755,8 @@ function App() {
                   Import a bank statement or add transactions manually<br/>to start tracking this month.
                 </div>
                 <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
-                  <button className="btn btn-primary" style={{padding:"9px 20px",fontSize:12}} onClick={()=>{setShowAddMenu(false);setActiveTab("transactions");setTimeout(()=>{setShowImport(true);resetImport();},50);}}>↑ Import Statement</button>
-                  <button className="btn btn-secondary" style={{padding:"9px 20px",fontSize:12}} onClick={()=>{setActiveTab("transactions");setTimeout(()=>setShowForm(true),50);}}>+ Add Manually</button>
+                  <button className="btn btn-primary" style={{padding:"9px 20px",fontSize:12}} onClick={()=>{setShowAddMenu(false);setTimeout(()=>{setShowImport(true);resetImport();},50);}}>↑ Import Statement</button>
+                  <button className="btn btn-secondary" style={{padding:"9px 20px",fontSize:12}} onClick={()=>setTimeout(()=>setShowForm(true),50)}>+ Add Manually</button>
                 </div>
               </div>
             )}
@@ -2441,8 +2782,24 @@ function App() {
           </div>
         )}
 
-        {/* ── MONTHLY continued: Budget section (inline) ── */}
-        {activeTab==="monthly"&&(()=>{
+        {/* Categories tab: month selector */}
+        {activeTab==="categories"&&(
+          <div className="card fade-in" style={{padding:"14px 20px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
+            <button className="btn-icon" onClick={()=>shiftMonth(-1)}>←</button>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <select className="month-select" value={monthYear.month} onChange={e=>setMonthYear(mv=>({...mv,month:parseInt(e.target.value)}))}>
+                {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
+              </select>
+              <select className="month-select" value={monthYear.year} onChange={e=>setMonthYear(mv=>({...mv,year:parseInt(e.target.value)}))}>
+                {availableYears.map(y=><option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <button className="btn-icon" onClick={()=>shiftMonth(1)}>→</button>
+          </div>
+        )}
+
+        {/* ── CATEGORIES: Budget section ── */}
+        {activeTab==="categories"&&(()=>{
           // Build per-category budget map from taxonomy (expense entries only)
           const budgetMap={};
           taxonomy.filter(t=>t.type==="expense"||t.type==="notreported").forEach(t=>{
@@ -2583,7 +2940,7 @@ function App() {
                 <div className="card" style={{padding:"28px 24px",marginBottom:16,textAlign:"center"}}>
                   <div style={{fontSize:22,marginBottom:10}}>📋</div>
                   <div style={{fontSize:13,color:"#999999",marginBottom:12,lineHeight:1.7}}>No budgets have been set yet.<br/>Add budget amounts to your categories to track spending here.</div>
-                  <button className="btn btn-secondary" style={{padding:"8px 20px",fontSize:12}} onClick={()=>{setActiveTab("edit");setEditSub("categories");}}>Set Budgets in Categories →</button>
+                  <button className="btn btn-secondary" style={{padding:"8px 20px",fontSize:12}} onClick={()=>{setShowSettings(true);setEditSub("categories");}}>Set Budgets in Categories →</button>
                 </div>
               )}
 
@@ -2601,7 +2958,7 @@ function App() {
                         onClick={()=>setShowAllBudgetCats(v=>!v)}>
                         {showAllBudgetCats?"Budgeted only":"Show all"}
                       </button>
-                      <button className="btn-ghost" style={{fontSize:10,padding:"3px 10px"}} onClick={()=>{setActiveTab("edit");setEditSub("categories");}}>Edit budgets →</button>
+                      <button className="btn-ghost" style={{fontSize:10,padding:"3px 10px"}} onClick={()=>{setShowSettings(true);setEditSub("categories");}}>Edit budgets →</button>
                     </div>
                   </div>
                   {budgetedCats.map(cat=><BudgetRow key={cat} cat={cat} showAll={showAllBudgetCats}/>)}
@@ -2618,8 +2975,242 @@ function App() {
           );
         })()}
 
-        {/* ── EDIT TAB ── */}
-        {activeTab==="edit"&&(
+        {/* ── SETTINGS TAB ── */}
+        {activeTab==="settings"&&(
+          <div className="fade-in">
+            <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+              <button className={"subtab "+(editSub==="accounts"?"subtab-active":"subtab-inactive")} onClick={()=>setEditSub("accounts")}>Accounts</button>
+              <button className={"subtab "+(editSub==="categories"?"subtab-active":"subtab-inactive")} onClick={()=>setEditSub("categories")}>Categories &amp; Subcategories</button>
+              <button className={"subtab "+(editSub==="rules"?"subtab-active":"subtab-inactive")} onClick={()=>setEditSub("rules")}>Description Rules</button>
+              <button className={"subtab "+(editSub==="data"?"subtab-active":"subtab-inactive")} onClick={()=>setEditSub("data")}>Data &amp; Backup</button>
+            </div>
+
+            {editSub==="accounts"&&(
+              <AccountsPanel accounts={accounts} transactions={transactions} addAccount={addAccount} removeAccount={removeAccount}/>
+            )}
+
+            {editSub==="categories"&&(
+              <div className="fade-in" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,alignItems:"start",marginBottom:4}}>
+                <TaxPanel panelType="expense"
+                  taxonomy={taxonomy} collapsedCats={collapsedCats} setCollapsedCats={setCollapsedCats}
+                  editingTaxIdx={editingTaxIdx} editingTaxVal={editingTaxVal} setEditingTaxIdx={setEditingTaxIdx} setEditingTaxVal={setEditingTaxVal} editingTaxSubcats={editingTaxSubcats}
+                  dragTaxIdx={dragTaxIdx} setDragTaxIdx={setDragTaxIdx} dragOverTaxIdx={dragOverTaxIdx} setDragOverTaxIdx={setDragOverTaxIdx}
+                  dropTax={dropTax} startEditTax={startEditTax} commitEditTax={commitEditTax} removeTaxEntry={removeTaxEntry} removeCategoryGroup={removeCategoryGroup}
+                  newTax={newTax} setNewTax={setNewTax} taxSubcats={taxSubcats} allCats={allCats} addTaxEntry={addTaxEntry} resetTaxonomy={resetTaxonomy}/>
+                <TaxPanel panelType="income"
+                  taxonomy={taxonomy} collapsedCats={collapsedCats} setCollapsedCats={setCollapsedCats}
+                  editingTaxIdx={editingTaxIdx} editingTaxVal={editingTaxVal} setEditingTaxIdx={setEditingTaxIdx} setEditingTaxVal={setEditingTaxVal} editingTaxSubcats={editingTaxSubcats}
+                  dragTaxIdx={dragTaxIdx} setDragTaxIdx={setDragTaxIdx} dragOverTaxIdx={dragOverTaxIdx} setDragOverTaxIdx={setDragOverTaxIdx}
+                  dropTax={dropTax} startEditTax={startEditTax} commitEditTax={commitEditTax} removeTaxEntry={removeTaxEntry} removeCategoryGroup={removeCategoryGroup}
+                  newTax={newTax} setNewTax={setNewTax} taxSubcats={taxSubcats} allCats={allCats} addTaxEntry={addTaxEntry} resetTaxonomy={resetTaxonomy}/>
+              </div>
+            )}
+
+            {editSub==="rules"&&(
+              <div className="card fade-in" style={{marginBottom:20}}>
+                <div style={{padding:"16px 16px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div className="sl" style={{marginBottom:0}}>Description Match Rules <span style={{color:"#5a5a5a",fontWeight:400}}>({descRules.length})</span></div>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <button className="btn-ghost" style={{fontSize:11,padding:"4px 10px",color:"#10b981",border:"1px solid #10b98133"}} onClick={reRunRules}>▶ Re-run Rules</button>
+                    <button className="btn-reset" onClick={resetRules}>↺ Reset to defaults</button>
+                  </div>
+                </div>
+                <div style={{padding:"0 16px 12px",borderBottom:"1px solid #1e1e1e"}}>
+                  <div style={{fontSize:11,color:"#737373",lineHeight:1.8}}>
+                    Rules are tested in order — first match wins. Patterns are <span style={{color:"#999999"}}>case-insensitive regex</span>.<br/>
+                    <span className="tag" style={{background:TYPE_STYLE.auto.bg,color:TYPE_STYLE.auto.color,marginRight:4}}>Auto</span>
+                    classifies as income when the amount is positive, expense when negative.
+                    <span className="tag" style={{background:TYPE_STYLE.notreported.bg,color:TYPE_STYLE.notreported.color,margin:"0 4px"}}>Not Reported</span>
+                    always excludes the transaction from totals.
+                  </div>
+                </div>
+                <div style={{padding:"8px 12px",borderBottom:"1px solid #1e1e1e"}}>
+                  <div style={{display:"flex",gap:8}}>
+                    <div style={{flex:"0 0 18px"}}/>
+                    {["Pattern (regex)","Category","Subcategory","Classification","Nickname"].map((h,i)=><div key={h} style={{flex:i===0?"2 1 160px":i===3?"0 0 110px":i===4?"1 1 90px":"1 1 100px",fontSize:9,color:"#5a5a5a",letterSpacing:"0.12em",textTransform:"uppercase"}}>{h}</div>)}
+                    <div style={{flex:"0 0 28px"}}/>
+                  </div>
+                  <div style={{fontSize:9,color:"#555555",marginTop:4,letterSpacing:"0.05em"}}>↑ click any row to edit &nbsp;·&nbsp; ⠿ drag to reorder</div>
+                </div>
+                <div style={{maxHeight:400,overflowY:"auto"}}>
+                  {descRules.map((r,idx)=>{
+                    const ts=TYPE_STYLE[r.type]||TYPE_STYLE.auto;
+                    const cellStyle={cursor:"pointer",borderRadius:4,padding:"3px 6px",transition:"background 0.12s"};
+                    const isDragOver=dragOverRuleIdx===idx&&dragRuleIdx!==idx;
+                    const isDragging=dragRuleIdx===idx;
+                    return(
+                      <div key={idx} className="edit-row"
+                        draggable
+                        onDragStart={()=>{setDragRuleIdx(idx);setEditingRuleIdx(null);setEditingRuleVal({});}}
+                        onDragOver={e=>{e.preventDefault();setDragOverRuleIdx(idx);}}
+                        onDragLeave={()=>{if(dragOverRuleIdx===idx)setDragOverRuleIdx(null);}}
+                        onDrop={()=>dropRule(idx)}
+                        onDragEnd={()=>{setDragRuleIdx(null);setDragOverRuleIdx(null);}}
+                        style={{flexWrap:"nowrap",alignItems:"center",gap:8,opacity:isDragging?0.4:1,borderTop:isDragOver?"2px solid #8b5cf6":"",transition:"border 0.1s,opacity 0.1s"}}>
+                        <div style={{flex:"0 0 18px",cursor:"grab",color:"#555555",fontSize:13,userSelect:"none",textAlign:"center"}} title="Drag to reorder">⠿</div>
+                        <div style={{...cellStyle,flex:"2 1 160px",fontSize:11,color:"#8b5cf6",fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>startEditRule(idx)} title={r.pattern}>{r.pattern}</div>
+                        <div style={{...cellStyle,flex:"1 1 100px",fontSize:11,color:"#bbb",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>startEditRule(idx)}>{r.category}</div>
+                        <div style={{...cellStyle,flex:"1 1 100px",fontSize:11,color:"#999999",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>startEditRule(idx)}>{r.subcategory}</div>
+                        <div style={{flex:"0 0 110px",cursor:"pointer"}} onClick={()=>startEditRule(idx)}>
+                          <span className="tag" style={{background:ts.bg,color:ts.color,fontSize:9}}>{TYPE_LABEL[r.type]||TYPE_LABEL.auto}</span>
+                        </div>
+                        <div style={{...cellStyle,flex:"1 1 90px",fontSize:11,color:r.nickname?"#e8e0d5":"#444",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontStyle:r.nickname?"normal":"italic"}} onClick={()=>startEditRule(idx)} title={r.nickname||""}>{r.nickname||"—"}</div>
+                        <div style={{flex:"0 0 28px",textAlign:"right"}}><button className="btn-danger" style={{fontSize:14}} onClick={()=>removeRuleEntry(idx)}>×</button></div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="add-form">
+                  <div style={{fontSize:9,letterSpacing:"0.15em",color:"#737373",textTransform:"uppercase",marginBottom:10}}>Add Rule</div>
+                  <div style={{display:"grid",gap:10}}>
+                    <div>
+                      <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Match Pattern (regex, max 200 chars)</div>
+                      <input className="input-sm" placeholder="e.g. STARBUCKS|TIM HORTONS" value={newRule.pattern} maxLength={200} onChange={e=>setNewRule(f=>({...f,pattern:e.target.value}))} style={{fontFamily:"monospace",color:"#8b5cf6"}}/>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div>
+                        <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Maps to Category</div>
+                        <select className="input-sm" value={newRule.category} onChange={e=>setNewRule(f=>({...f,category:e.target.value,subcategory:""}))}>
+                          <option value="">— Select —</option>{ruleCats.map(c=><option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Maps to Subcategory</div>
+                        <select className="input-sm" value={newRule.subcategory} disabled={!newRule.category} onChange={e=>setNewRule(f=>({...f,subcategory:e.target.value}))}>
+                          <option value="">— Select —</option>{ruleSubcats.map(s=><option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:9,color:"#737373",marginBottom:6,letterSpacing:"0.1em",textTransform:"uppercase"}}>Classification</div>
+                      <RuleTypeSelector value={newRule.type} onChange={v=>setNewRule(f=>({...f,type:v,category:"",subcategory:""}))}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Nickname <span style={{color:"#555",letterSpacing:"0.04em",textTransform:"none"}}>— optional display name for matched transactions</span></div>
+                      <input className="input-sm" placeholder="Leave blank to use original description" value={newRule.nickname||""} maxLength={100} onChange={e=>setNewRule(f=>({...f,nickname:e.target.value}))}/>
+                    </div>
+                    <button className="btn btn-primary" onClick={addRuleEntry} style={{width:"100%",padding:"9px"}}>+ Add Rule</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {editSub==="data"&&(
+              <div className="fade-in">
+                {(()=>{
+                  const issueCount=(dupGroups.length>0?1:0)+(splitParents.length>0?1:0);
+                  return(
+                    <div className="card" style={{marginBottom:20}}>
+                      <div style={{padding:"16px 16px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div>
+                          <div className="sl" style={{marginBottom:2}}>Data Health</div>
+                          {issueCount===0
+                            ?<div style={{fontSize:11,color:"#10b981"}}>✓ No issues detected</div>
+                            :<div style={{fontSize:11,color:"#f97316"}}>{issueCount} issue type{issueCount!==1?"s":""} found</div>
+                          }
+                        </div>
+                      </div>
+                      <div style={{borderTop:"1px solid #1e1e1e"}}>
+                        <div style={{padding:"10px 16px",display:"flex",alignItems:"center",gap:10,borderBottom:splitParents.length>0?"1px solid #141414":""}}>
+                          <div style={{width:7,height:7,borderRadius:"50%",background:dupGroups.length>0?"#f97316":"#2a2a2a",flexShrink:0}}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:12,color:dupGroups.length>0?"#ccc":"#555"}}>Duplicate Transactions</div>
+                            <div style={{fontSize:10,color:dupGroups.length>0?"#f97316":"#444",marginTop:1}}>
+                              {dupGroups.length>0?`${dupGroups.length} potential group${dupGroups.length!==1?"s":""} found`:"None detected"}
+                            </div>
+                          </div>
+                          {dupGroups.length>0&&(
+                            <button className="btn-ghost" style={{fontSize:10,borderColor:dhView==="dupes"?"#f9731644":"#2a2a2a",color:dhView==="dupes"?"#f97316":"#888"}}
+                              onClick={()=>setDhView(v=>v==="dupes"?null:"dupes")}>
+                              {dhView==="dupes"?"Hide":"Review"}
+                            </button>
+                          )}
+                        </div>
+                        {splitParents.length>0&&(
+                          <div style={{padding:"10px 16px",display:"flex",alignItems:"center",gap:10}}>
+                            <div style={{width:7,height:7,borderRadius:"50%",background:"#8b5cf6",flexShrink:0}}/>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:12,color:"#ccc"}}>Split Origins</div>
+                              <div style={{fontSize:10,color:"#8b5cf6",marginTop:1}}>{splitParents.length} ghost record{splitParents.length!==1?"s":""} — hidden from totals, used for dedup</div>
+                            </div>
+                            <button className="btn-ghost" style={{fontSize:10,borderColor:dhView==="origins"?"#8b5cf688":"#2a2a2a",color:dhView==="origins"?"#a78bfa":"#888"}}
+                              onClick={()=>setDhView(v=>v==="origins"?null:"origins")}>
+                              {dhView==="origins"?"Hide":"View"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      {dhView==="dupes"&&dupGroups.length>0&&(
+                        <div style={{borderTop:"1px solid #1e1e1e"}}>
+                          {dupGroups.map((group,gi)=>(
+                            <div key={gi} style={{borderBottom:"1px solid #1c1c1c",padding:"10px 16px"}}>
+                              <div style={{fontSize:10,color:"#f97316",letterSpacing:"0.08em",marginBottom:8}}>⚠ {group.length} identical transactions</div>
+                              {group.map((t,ti)=>(
+                                <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:ti<group.length-1?"1px solid #141414":""}}>
+                                  <div style={{width:6,height:6,borderRadius:"50%",background:catColor(t.category),flexShrink:0}}/>
+                                  <div style={{flex:1,minWidth:0}}>
+                                    <div style={{fontSize:12,color:"#ccc",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.description}</div>
+                                    <div style={{fontSize:10,color:"#737373",marginTop:2}}>{t.date} · {t.category} / {t.subcategory}</div>
+                                  </div>
+                                  <div style={{fontSize:12,color:t.type==="income"?"#10b981":"#f43f5e",whiteSpace:"nowrap",flexShrink:0}}>{t.type==="income"?"+":""}{fmt(Math.abs(t.amount))}</div>
+                                  <button className="btn-danger" style={{fontSize:14,flexShrink:0}} onClick={()=>showConfirm("Delete this transaction?",`"${t.description}" on ${t.date} for ${fmt(Math.abs(t.amount))}`,"Delete",true,()=>removeTx(t.id))}>×</button>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {dhView==="origins"&&splitParents.length>0&&(
+                        <div style={{borderTop:"1px solid #1e1e1e"}}>
+                          <div style={{padding:"10px 16px 8px",fontSize:11,color:"#737373",lineHeight:1.7,borderBottom:"1px solid #141414"}}>
+                            These records are invisible everywhere else and only prevent split transactions from re-importing. Delete one only if you will never re-import a statement containing it.
+                          </div>
+                          {splitParents.map(t=>(
+                            <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:"1px solid #141414"}}>
+                              <div style={{width:7,height:7,borderRadius:"50%",background:"#3a3a3a",flexShrink:0}}/>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:12,color:"#777",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.description}</div>
+                                <div style={{display:"flex",gap:6,marginTop:3,alignItems:"center",flexWrap:"wrap"}}>
+                                  <span style={{fontSize:10,color:"#555"}}>{t.date}</span>
+                                  {t.accountName&&<span style={{fontSize:10,color:"#555",background:"#1a1a1a",borderRadius:4,padding:"1px 6px"}}>{t.accountName}</span>}
+                                  <span style={{fontSize:9,color:"#8b5cf6",background:"#8b5cf618",borderRadius:100,padding:"1px 7px"}}>split origin</span>
+                                </div>
+                              </div>
+                              <div style={{fontSize:12,color:"#555",whiteSpace:"nowrap",flexShrink:0}}>{fmt(Math.abs(t.amount))}</div>
+                              <button className="btn-danger" style={{fontSize:14,flexShrink:0}} onClick={()=>showConfirm("Delete this split origin?",`"${t.description}" on ${t.date} for ${fmt(Math.abs(t.amount))}.\n\nWarning: re-importing a statement with this transaction will no longer be blocked.`,"Delete",true,()=>removeTx(t.id))}>×</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+                <div className="card" style={{marginBottom:20,padding:20}}>
+                  <div className="sl">Data Backup &amp; Export</div>
+                  <p style={{fontSize:12,color:"#737373",marginBottom:16,lineHeight:1.7}}>Export a full JSON backup of all data, or download your transactions as a CSV spreadsheet.</p>
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                    <button className="btn btn-primary"   style={{padding:"10px 20px"}} onClick={handleBackupExport}>↓ Export JSON Backup</button>
+                    <button className="btn btn-secondary" style={{padding:"10px 20px"}} onClick={handleCSVExport}>↓ Export CSV</button>
+                    <button className="btn btn-secondary" style={{padding:"10px 20px"}} onClick={()=>backupRef.current.click()}>↑ Restore Backup</button>
+                    <input ref={backupRef} type="file" accept=".json" style={{display:"none"}} onChange={handleBackupImport}/>
+                  </div>
+                  <div style={{marginTop:12,fontSize:10,color:"#555555"}}>⚠ Restoring a backup will overwrite all current transactions, categories, and rules.</div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── SETTINGS PANEL ── */}
+        {showSettings&&(
+          <div style={{position:"fixed",inset:0,zIndex:900,display:"flex"}}>
+            <div style={{flex:1,background:"rgba(0,0,0,0.55)"}} onClick={()=>setShowSettings(false)}/>
+            <div style={{width:"min(520px,100vw)",background:"#111",borderLeft:"1px solid #222",display:"flex",flexDirection:"column",overflowY:"auto"}}>
+              <div style={{padding:"18px 20px 14px",borderBottom:"1px solid #1e1e1e",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"#111",zIndex:1}}>
+                <div style={{fontSize:10,letterSpacing:"0.2em",color:"#737373",textTransform:"uppercase"}}>Settings</div>
+                <button className="btn-danger" style={{fontSize:20,padding:"4px 10px"}} onClick={()=>setShowSettings(false)}>×</button>
+              </div>
+              <div style={{padding:"16px 20px",flex:1}}>
           <div className="fade-in">
             <div style={{display:"flex",gap:6,marginBottom:16}}>
               <button className={"subtab "+(editSub==="accounts"?"subtab-active":"subtab-inactive")} onClick={()=>setEditSub("accounts")}>Accounts</button>
@@ -2737,83 +3328,101 @@ function App() {
               </div>
             )}
 
-            {/* ── Duplicate Scanner ── */}
-            <div className="card fade-in" style={{marginBottom:20}}>
-              <div style={{padding:"16px 16px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div>
-                  <div className="sl" style={{marginBottom:2}}>Duplicate Transaction Scanner</div>
-                  {dupGroups.length>0
-                    ?<div style={{fontSize:11,color:"#f97316"}}>{dupGroups.length} potential duplicate group{dupGroups.length!==1?"s":""} found</div>
-                    :<div style={{fontSize:11,color:"#10b981"}}>✓ No duplicates detected</div>
-                  }
-                </div>
-                <div style={{display:"flex",gap:6}}>
-                  {splitParents.length>0&&(
-                    <button className="btn-ghost" style={{fontSize:10,borderColor:showSplitParents?"#8b5cf688":"#2a2a2a",color:showSplitParents?"#a78bfa":"#888"}} onClick={()=>{setShowSplitParents(v=>!v);setShowDupScanner(false);}}>
-                      ⊕ Split Origins ({splitParents.length})
-                    </button>
-                  )}
-                  {dupGroups.length>0&&(
-                    <button className="btn-ghost" style={{fontSize:10}} onClick={()=>{setShowDupScanner(v=>!v);setShowSplitParents(false);}}>
-                      {showDupScanner?"Hide":"Review"}
-                    </button>
-                  )}
-                </div>
-              </div>
+            {/* ── Data Health ── */}
+            {(()=>{
+              const issueCount=(dupGroups.length>0?1:0)+(splitParents.length>0?1:0);
+              return(
+                <div className="card fade-in" style={{marginBottom:20}}>
+                  <div style={{padding:"16px 16px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <div className="sl" style={{marginBottom:2}}>Data Health</div>
+                      {issueCount===0
+                        ?<div style={{fontSize:11,color:"#10b981"}}>✓ No issues detected</div>
+                        :<div style={{fontSize:11,color:"#f97316"}}>{issueCount} issue type{issueCount!==1?"s":""} found</div>
+                      }
+                    </div>
+                  </div>
 
-              {/* Duplicate groups */}
-              {showDupScanner&&dupGroups.length>0&&(
-                <div style={{borderTop:"1px solid #1e1e1e"}}>
-                  {dupGroups.map((group,gi)=>(
-                    <div key={gi} style={{borderBottom:"1px solid #1c1c1c",padding:"10px 16px"}}>
-                      <div style={{fontSize:10,color:"#f97316",letterSpacing:"0.08em",marginBottom:8}}>
-                        ⚠ {group.length} identical transactions
+                  {/* Issue rows */}
+                  <div style={{borderTop:"1px solid #1e1e1e"}}>
+                    {/* Duplicates row */}
+                    <div style={{padding:"10px 16px",display:"flex",alignItems:"center",gap:10,borderBottom:splitParents.length>0?"1px solid #141414":""}}>
+                      <div style={{width:7,height:7,borderRadius:"50%",background:dupGroups.length>0?"#f97316":"#2a2a2a",flexShrink:0}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,color:dupGroups.length>0?"#ccc":"#555"}}>Duplicate Transactions</div>
+                        <div style={{fontSize:10,color:dupGroups.length>0?"#f97316":"#444",marginTop:1}}>
+                          {dupGroups.length>0?`${dupGroups.length} potential group${dupGroups.length!==1?"s":""} found`:"None detected"}
+                        </div>
                       </div>
-                      {group.map((t,ti)=>(
-                        <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:ti<group.length-1?"1px solid #141414":""}}>
-                          <div style={{width:6,height:6,borderRadius:"50%",background:catColor(t.category),flexShrink:0}}/>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:12,color:"#ccc",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.description}</div>
-                            <div style={{fontSize:10,color:"#737373",marginTop:2}}>{t.date} · {t.category} / {t.subcategory}</div>
-                          </div>
-                          <div style={{fontSize:12,color:t.type==="income"?"#10b981":"#f43f5e",whiteSpace:"nowrap",flexShrink:0}}>{t.type==="income"?"+":""}{fmt(Math.abs(t.amount))}</div>
-                          <button className="btn-danger" style={{fontSize:14,flexShrink:0}} title="Delete this transaction" onClick={()=>showConfirm("Delete this transaction?",`"${t.description}" on ${t.date} for ${fmt(Math.abs(t.amount))}`,"Delete",true,()=>removeTx(t.id))}>×</button>
+                      {dupGroups.length>0&&(
+                        <button className="btn-ghost" style={{fontSize:10,borderColor:dhView==="dupes"?"#f9731644":"#2a2a2a",color:dhView==="dupes"?"#f97316":"#888"}}
+                          onClick={()=>setDhView(v=>v==="dupes"?null:"dupes")}>
+                          {dhView==="dupes"?"Hide":"Review"}
+                        </button>
+                      )}
+                    </div>
+                    {/* Split Origins row */}
+                    {splitParents.length>0&&(
+                      <div style={{padding:"10px 16px",display:"flex",alignItems:"center",gap:10}}>
+                        <div style={{width:7,height:7,borderRadius:"50%",background:"#8b5cf6",flexShrink:0}}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:12,color:"#ccc"}}>Split Origins</div>
+                          <div style={{fontSize:10,color:"#8b5cf6",marginTop:1}}>{splitParents.length} ghost record{splitParents.length!==1?"s":""} — hidden from totals, used for dedup</div>
+                        </div>
+                        <button className="btn-ghost" style={{fontSize:10,borderColor:dhView==="origins"?"#8b5cf688":"#2a2a2a",color:dhView==="origins"?"#a78bfa":"#888"}}
+                          onClick={()=>setDhView(v=>v==="origins"?null:"origins")}>
+                          {dhView==="origins"?"Hide":"View"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Detail panels */}
+                  {dhView==="dupes"&&dupGroups.length>0&&(
+                    <div style={{borderTop:"1px solid #1e1e1e"}}>
+                      {dupGroups.map((group,gi)=>(
+                        <div key={gi} style={{borderBottom:"1px solid #1c1c1c",padding:"10px 16px"}}>
+                          <div style={{fontSize:10,color:"#f97316",letterSpacing:"0.08em",marginBottom:8}}>⚠ {group.length} identical transactions</div>
+                          {group.map((t,ti)=>(
+                            <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:ti<group.length-1?"1px solid #141414":""}}>
+                              <div style={{width:6,height:6,borderRadius:"50%",background:catColor(t.category),flexShrink:0}}/>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:12,color:"#ccc",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.description}</div>
+                                <div style={{fontSize:10,color:"#737373",marginTop:2}}>{t.date} · {t.category} / {t.subcategory}</div>
+                              </div>
+                              <div style={{fontSize:12,color:t.type==="income"?"#10b981":"#f43f5e",whiteSpace:"nowrap",flexShrink:0}}>{t.type==="income"?"+":""}{fmt(Math.abs(t.amount))}</div>
+                              <button className="btn-danger" style={{fontSize:14,flexShrink:0}} onClick={()=>showConfirm("Delete this transaction?",`"${t.description}" on ${t.date} for ${fmt(Math.abs(t.amount))}`,"Delete",true,()=>removeTx(t.id))}>×</button>
+                            </div>
+                          ))}
                         </div>
                       ))}
                     </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Split origin ghosts */}
-              {showSplitParents&&splitParents.length>0&&(
-                <div style={{borderTop:"1px solid #1e1e1e"}}>
-                  <div style={{padding:"10px 16px 8px",fontSize:11,color:"#737373",lineHeight:1.7,borderBottom:"1px solid #141414"}}>
-                    These are the original transactions before they were split. They are invisible everywhere else and exist only to prevent duplicate imports.
-                    You can safely delete one if you are certain you will never re-import a statement that contains it.
-                  </div>
-                  {splitParents.map(t=>(
-                    <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:"1px solid #141414"}}>
-                      <div style={{width:7,height:7,borderRadius:"50%",background:"#3a3a3a",flexShrink:0}}/>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:12,color:"#777",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.description}</div>
-                        <div style={{display:"flex",gap:6,marginTop:3,flexWrap:"wrap",alignItems:"center"}}>
-                          <span style={{fontSize:10,color:"#555"}}>{t.date}</span>
-                          {t.accountName&&<span style={{fontSize:10,color:"#555",background:"#1a1a1a",borderRadius:4,padding:"1px 6px"}}>{t.accountName}</span>}
-                          <span style={{fontSize:9,color:"#8b5cf6",background:"#8b5cf618",borderRadius:100,padding:"1px 7px",letterSpacing:"0.05em"}}>split origin</span>
-                        </div>
+                  )}
+                  {dhView==="origins"&&splitParents.length>0&&(
+                    <div style={{borderTop:"1px solid #1e1e1e"}}>
+                      <div style={{padding:"10px 16px 8px",fontSize:11,color:"#737373",lineHeight:1.7,borderBottom:"1px solid #141414"}}>
+                        These records are invisible everywhere else and only prevent split transactions from re-importing. Delete one only if you will never re-import a statement containing it.
                       </div>
-                      <div style={{fontSize:12,color:"#555",whiteSpace:"nowrap",flexShrink:0}}>{fmt(Math.abs(t.amount))}</div>
-                      <button className="btn-danger" style={{fontSize:14,flexShrink:0}} title="Permanently delete this split origin" onClick={()=>showConfirm(
-                        "Delete this split origin?",
-                        `"${t.description}" on ${t.date} for ${fmt(Math.abs(t.amount))}.\n\nWarning: if you re-import a statement containing this transaction, it will no longer be blocked as a duplicate.`,
-                        "Delete",true,()=>removeTx(t.id)
-                      )}>×</button>
+                      {splitParents.map(t=>(
+                        <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:"1px solid #141414"}}>
+                          <div style={{width:7,height:7,borderRadius:"50%",background:"#3a3a3a",flexShrink:0}}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:12,color:"#777",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.description}</div>
+                            <div style={{display:"flex",gap:6,marginTop:3,alignItems:"center",flexWrap:"wrap"}}>
+                              <span style={{fontSize:10,color:"#555"}}>{t.date}</span>
+                              {t.accountName&&<span style={{fontSize:10,color:"#555",background:"#1a1a1a",borderRadius:4,padding:"1px 6px"}}>{t.accountName}</span>}
+                              <span style={{fontSize:9,color:"#8b5cf6",background:"#8b5cf618",borderRadius:100,padding:"1px 7px"}}>split origin</span>
+                            </div>
+                          </div>
+                          <div style={{fontSize:12,color:"#555",whiteSpace:"nowrap",flexShrink:0}}>{fmt(Math.abs(t.amount))}</div>
+                          <button className="btn-danger" style={{fontSize:14,flexShrink:0}} onClick={()=>showConfirm("Delete this split origin?",`"${t.description}" on ${t.date} for ${fmt(Math.abs(t.amount))}.\n\nWarning: re-importing a statement with this transaction will no longer be blocked.`,"Delete",true,()=>removeTx(t.id))}>×</button>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              )}
-            </div>
+              );
+            })()}
 
             <div className="card fade-in" style={{marginBottom:20,padding:20}}>
               <div className="sl">Data Backup &amp; Export</div>
@@ -2825,6 +3434,9 @@ function App() {
                 <input ref={backupRef} type="file" accept=".json" style={{display:"none"}} onChange={handleBackupImport}/>
               </div>
               <div style={{marginTop:12,fontSize:10,color:"#555555"}}>⚠ Restoring a backup will overwrite all current transactions, categories, and rules.</div>
+            </div>
+          </div>
+              </div>
             </div>
           </div>
         )}
@@ -2992,145 +3604,6 @@ function App() {
         );
       })()}
 
-      {/* Unmatched Review Modal */}
-      {unmatchedQueue.length>0&&(()=>{
-        const item=unmatchedQueue[reviewIdx]||unmatchedQueue[0];
-        const ed=reviewEdit(item);
-        const reviewCats=ed.typeFilter==="income"?incomeCats:expenseCats;
-        const reviewSubcats=ed.category?getSubcats(taxonomy,ed.category,ed.typeFilter):[];
-        const sourceLabel=item.accountName?item.accountName:item.source==="chequing"?"🏦 Chequing":item.source==="credit"?"💳 Credit Card":item.source==="savings"?"🪙 Savings":"📄 Generic";
-        const amtColor=item.amount>=0?"#10b981":"#f43f5e";
-        const total=unmatchedQueue.length,pos=(reviewIdx||0)+1;
-        const patternSuggestions=generatePatternSuggestions(item.description);
-        const readyToSave=ed.category&&ed.subcategory;
-        return(
-          <div style={{position:"fixed",top:0,right:0,bottom:0,left:0,background:"rgba(0,0,0,0.72)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:16,overflowY:"auto"}}>
-            <div style={{background:"#181818",border:"1px solid #2e2e2e",borderRadius:16,width:"100%",maxWidth:480,overflow:"hidden",boxShadow:"0 24px 64px rgba(0,0,0,0.6)"}}>
-              <div style={{padding:"18px 22px 14px",borderBottom:"1px solid #222",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div>
-                  <div style={{fontSize:10,letterSpacing:"0.2em",color:"#737373",textTransform:"uppercase",marginBottom:3}}>Review Unmatched</div>
-                  <div style={{fontSize:13,color:"#bbbbbb"}}><span style={{color:"#e8e0d5",fontWeight:500}}>{pos}</span><span style={{color:"#5a5a5a"}}> / {total}</span><span style={{color:"#5a5a5a",marginLeft:8}}>— assign a category to save</span></div>
-                </div>
-                <button className="btn-danger" style={{fontSize:20,padding:"4px 10px"}} onClick={dismissReviewQueue} title="Dismiss all remaining">×</button>
-              </div>
-              <div style={{padding:"18px 22px",borderBottom:"1px solid #1e1e1e"}}>
-                <div style={{fontSize:11,color:"#737373",marginBottom:8,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-                  <span style={{background:"#1e1e1e",border:"1px solid #2a2a2a",borderRadius:6,padding:"3px 10px",fontSize:10,color:"#bbbbbb"}}>{sourceLabel}</span>
-                  <span style={{color:"#888888"}}>{item.date}</span>
-                </div>
-                <div style={{fontSize:16,fontWeight:500,color:"#ddd",marginBottom:10,lineHeight:1.4,wordBreak:"break-all"}}>{item.description}</div>
-                <div style={{fontSize:22,fontWeight:500,color:amtColor,letterSpacing:"-0.02em"}}>{item.amount>=0?"+":""}{fmt(Math.abs(item.amount))}</div>
-              </div>
-              <div style={{padding:"18px 22px",display:"grid",gap:14}}>
-                <div>
-                  <div style={{fontSize:9,color:"#737373",letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>Transaction Type</div>
-                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                    {["expense","income","notreported"].map(tf=>(
-                      <button key={tf} className={"btn chip "+(ed.typeFilter===tf?"chip-active":"chip-inactive")} style={{fontSize:11}} onClick={()=>setReviewEdit(item,{typeFilter:tf,category:"",subcategory:""})}>
-                        {tf==="notreported"?"Not Reported":tf[0].toUpperCase()+tf.slice(1)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                  <div>
-                    <div style={{fontSize:9,color:"#737373",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>Category</div>
-                    <select className="input" value={ed.category} disabled={reviewSplitMode} onChange={e=>{const cat=e.target.value,subs=cat?getSubcats(taxonomy,cat,ed.typeFilter):[];setReviewEdit(item,{category:cat,subcategory:subs[0]||""});}}>
-                      <option value="">— Select —</option>{reviewCats.map(c=><option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <div style={{fontSize:9,color:"#737373",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>Subcategory</div>
-                    <select className="input" value={ed.subcategory} disabled={!ed.category||reviewSplitMode} onChange={e=>setReviewEdit(item,{subcategory:e.target.value})}>
-                      <option value="">— Select —</option>{reviewSubcats.map(s=><option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </div>
-                </div>
-                <div style={{marginTop:-6}}>
-                  <button className="btn-ghost" style={{fontSize:10,padding:"3px 10px"}} onClick={()=>setQuickAddTaxCtx({typeHint:ed.typeFilter, onAdded:(entry)=>{const subs=getSubcats(taxonomy,entry.category,ed.typeFilter);setReviewEdit(item,{category:entry.category,subcategory:entry.subcategory||subs[0]||""});}})}>＋ Add Category / Subcategory</button>
-                </div>
-                {/* Split toggle */}
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"#111",borderRadius:8,border:"1px solid "+(reviewSplitMode?"#8b5cf644":"#1e1e1e")}}>
-                  <div>
-                    <div style={{fontSize:11,color:reviewSplitMode?"#a78bfa":"#666",fontWeight:500}}>⊕ Split transaction</div>
-                    <div style={{fontSize:10,color:"#606060",marginTop:2}}>Divide across multiple categories</div>
-                  </div>
-                  <button onClick={()=>{
-                    if(!reviewSplitMode){
-                      const total=Math.abs(item.amount);
-                      setReviewSplits([
-                        {id:Date.now()+1,amount:total.toFixed(2),category:ed.category||"",subcategory:ed.subcategory||""},
-                        {id:Date.now()+2,amount:"",category:"",subcategory:""},
-                      ]);
-                    }
-                    setReviewSplitMode(v=>!v);
-                  }} style={{padding:"5px 14px",borderRadius:8,border:"1px solid "+(reviewSplitMode?"#8b5cf688":"#2a2a2a"),background:reviewSplitMode?"#8b5cf618":"transparent",color:reviewSplitMode?"#a78bfa":"#555",fontSize:11,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
-                    {reviewSplitMode?"✕ Cancel":"Split"}
-                  </button>
-                </div>
-                {reviewSplitMode&&(()=>{
-                  const rSplitTotal=Math.abs(item.amount);
-                  const rSplitSum=reviewSplits.reduce((s,sp)=>s+(parseFloat(sp.amount)||0),0);
-                  const rSplitReady=reviewSplits.length>=2&&reviewSplits.every(sp=>sp.category&&sp.subcategory)&&Math.abs(rSplitSum-rSplitTotal)<0.005;
-                  return(
-                    <div style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:8,padding:"12px 14px"}}>
-                      <SplitEditor total={rSplitTotal} splits={reviewSplits} onChange={setReviewSplits}
-                        taxonomy={taxonomy} cats={reviewCats} typeFilter={ed.typeFilter}/>
-                    </div>
-                  );
-                })()}
-                {!reviewSplitMode&&readyToSave&&(
-                  <div className="remember-box">
-                    <label style={{display:"flex",alignItems:"center",gap:9,cursor:"pointer"}}>
-                      <input type="checkbox" checked={reviewRemember} onChange={e=>{setReviewRemember(e.target.checked);setReviewPatternIdx(0);}} style={{accentColor:"#8b5cf6",width:14,height:14,cursor:"pointer"}}/>
-                      <span style={{fontSize:12,color:reviewRemember?"#bbb":"#555",transition:"color 0.15s"}}>Remember this pattern for future imports</span>
-                    </label>
-                    {reviewRemember&&(
-                      <div style={{marginTop:10}}>
-                        <div style={{fontSize:9,color:"#5a5a5a",marginBottom:8,letterSpacing:"0.08em"}}>
-                          Saves as <span className="tag" style={{background:TYPE_STYLE.auto.bg,color:TYPE_STYLE.auto.color}}>Auto (by sign)</span> — income when positive, expense when negative.
-                        </div>
-                        {patternSuggestions.length>0&&(
-                          <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                            <div style={{fontSize:9,color:"#737373",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:2}}>Match using</div>
-                            {patternSuggestions.map((s,i)=>(
-                              <label key={i} style={{display:"flex",alignItems:"center",gap:9,cursor:"pointer"}} onClick={()=>setReviewPatternIdx(i)}>
-                                <div style={{width:12,height:12,borderRadius:"50%",border:"1px solid "+(reviewPatternIdx===i?"#8b5cf6":"#333"),background:reviewPatternIdx===i?"#8b5cf6":"transparent",flexShrink:0,transition:"all 0.15s"}}/>
-                                <span style={{fontSize:9,color:"#888888",textTransform:"uppercase",letterSpacing:"0.08em",width:46,flexShrink:0}}>{s.label}</span>
-                                <code style={{fontSize:11,color:"#8b5cf6",wordBreak:"break-all"}}>{s.pattern}</code>
-                              </label>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {(()=>{
-                  const rSplitSum=reviewSplits.reduce((s,sp)=>s+(parseFloat(sp.amount)||0),0);
-                  const rSplitReady=reviewSplitMode&&reviewSplits.length>=2&&reviewSplits.every(sp=>sp.category&&sp.subcategory)&&Math.abs(rSplitSum-Math.abs(item.amount))<0.005;
-                  const canSaveReview=reviewSplitMode?rSplitReady:readyToSave;
-                  return(
-                    <div style={{display:"flex",gap:10}}>
-                      <button className="btn btn-primary" style={{flex:1,padding:12,opacity:canSaveReview?1:0.4,cursor:canSaveReview?"pointer":"not-allowed"}} onClick={()=>commitReviewItem(item)}>
-                        {reviewSplitMode?"Split & Save":"Save & Next"}
-                      </button>
-                      <button className="btn-ghost" style={{padding:"10px 18px"}} onClick={()=>skipReviewItem(item)}>Skip</button>
-                    </div>
-                  );
-                })()}
-                {total>1&&(
-                  <div style={{display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap"}}>
-                    {unmatchedQueue.map((q,i)=>(
-                      <button key={q.id} onClick={()=>setReviewIdx(i)} style={{width:8,height:8,borderRadius:"50%",border:"none",cursor:"pointer",padding:0,background:i===(reviewIdx||0)?"#e8e0d5":"#2e2e2e",transition:"background 0.15s"}}/>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* ── ONBOARDING OVERLAY ── */}
       {isNewUser&&loaded&&(()=>{
@@ -3375,6 +3848,38 @@ function App() {
       {confirmModal&&(
         <ConfirmModal message={confirmModal.message} detail={confirmModal.detail} confirmLabel={confirmModal.confirmLabel} danger={confirmModal.danger} onConfirm={()=>{confirmModal.onConfirm();setConfirmModal(null);}} onCancel={()=>setConfirmModal(null)}/>
       )}
+
+      {/* Add Menu popup (rises above footer) */}
+      {showAddMenu&&!showForm&&!showImport&&(
+        <div style={{position:"fixed",bottom:68,left:"50%",transform:"translateX(-50%)",background:"#1a1a1a",border:"1px solid #2a2a2a",borderRadius:12,padding:8,zIndex:300,display:"flex",flexDirection:"column",gap:4,minWidth:200,boxShadow:"0 -8px 32px #00000088"}}>
+          <button className="btn-ghost" style={{textAlign:"left",padding:"11px 16px",fontSize:13,borderRadius:8}} onClick={()=>{setShowForm(true);setShowAddMenu(false);}}>✎ &nbsp;Manual Entry</button>
+          <button className="btn-ghost" style={{textAlign:"left",padding:"11px 16px",fontSize:13,borderRadius:8}} onClick={()=>{resetImport();setShowImport(true);setShowAddMenu(false);}}>↑ &nbsp;Import File</button>
+        </div>
+      )}
+
+      {/* Navigation Footer */}
+      <nav className="nav-footer">
+        <button className={"nav-item"+(activeTab==="transactions"?" nav-active":"")} onClick={()=>setActiveTab("transactions")}>
+          <span className="nav-icon">☰</span>
+          <span className="nav-label">Transactions</span>
+        </button>
+        <button className={"nav-item"+(activeTab==="summary"?" nav-active":"")} onClick={()=>setActiveTab("summary")}>
+          <span className="nav-icon">◎</span>
+          <span className="nav-label">Summary</span>
+        </button>
+        <button className="nav-item nav-add" onClick={()=>{if(showForm||showImport){setShowForm(false);setShowImport(false);resetImport();setAmountError("");}else{setShowAddMenu(v=>!v);}}}>
+          <span className="nav-icon" style={{fontSize:22,fontWeight:300}}>{(showForm||showImport||showAddMenu)?"×":"+"}</span>
+          <span className="nav-label">Add</span>
+        </button>
+        <button className={"nav-item"+(activeTab==="categories"?" nav-active":"")} onClick={()=>setActiveTab("categories")}>
+          <span className="nav-icon">⊞</span>
+          <span className="nav-label">Categories</span>
+        </button>
+        <button className={"nav-item"+(activeTab==="settings"?" nav-active":"")} onClick={()=>setActiveTab("settings")}>
+          <span className="nav-icon">⚙</span>
+          <span className="nav-label">Settings</span>
+        </button>
+      </nav>
     </div>
   );
 }
