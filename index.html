@@ -842,9 +842,28 @@ function SplitEditor({ total, splits, onChange, taxonomy, cats, typeFilter }) {
 }
 
 // ── LineChart ─────────────────────────────────────────────────────────────────
-function LineChart({ transactions, month, year, taxonomy }) {
+function LineChart({ transactions, allTransactions, month, year, taxonomy }) {
   const [selCat, setSelCat] = useState("__all__");
   const [selSub, setSelSub] = useState("__all__");
+
+  // Comparison overlay state
+  const [showComp, setShowComp] = useState(false);
+  const prevMonth = month === 0 ? 11 : month - 1;
+  const prevMonthYear = month === 0 ? year - 1 : year;
+  const [compMonth, setCompMonth] = useState(prevMonth);
+  const [compYear, setCompYear]   = useState(prevMonthYear);
+
+  // Quick-pick helpers
+  function setLastMonth() { setCompMonth(prevMonth); setCompYear(prevMonthYear); }
+  function setLastYear()  { setCompMonth(month);     setCompYear(year - 1); }
+
+  // Available years from allTransactions
+  const compYears = useMemo(() => {
+    const yrs = new Set();
+    (allTransactions||[]).forEach(t => yrs.add(new Date(t.date+"T00:00:00").getFullYear()));
+    yrs.add(year - 1);
+    return [...yrs].sort((a,b) => b - a);
+  }, [allTransactions, year]);
 
   // Categories that have expense transactions this month
   const expCats = useMemo(() => {
@@ -892,7 +911,33 @@ function LineChart({ transactions, month, year, taxonomy }) {
     });
   }, [transactions, month, year, selCat, selSub, daysInMonth]);
 
-  const maxVal = Math.max(...dailyTotals.map(d => d.cumulative), 1);
+  // Comparison daily totals
+  const compDaysInMonth = new Date(compYear, compMonth + 1, 0).getDate();
+  const compDays = Array.from({ length: compDaysInMonth }, (_, i) => i + 1);
+  const compDailyTotals = useMemo(() => {
+    if (!showComp || !allTransactions) return null;
+    const byDay = {};
+    allTransactions.forEach(t => {
+      if (t.type !== "expense") return;
+      const d = new Date(t.date + "T00:00:00");
+      if (d.getMonth() !== compMonth || d.getFullYear() !== compYear) return;
+      if (selCat !== "__all__" && t.category !== selCat) return;
+      if (selSub !== "__all__" && t.subcategory !== selSub) return;
+      const day = d.getDate();
+      byDay[day] = (byDay[day] || 0) + Math.abs(t.amount);
+    });
+    let running = 0;
+    return compDays.map(d => {
+      running += byDay[d] || 0;
+      return { day: d, cumulative: running, daily: byDay[d] || 0 };
+    });
+  }, [showComp, allTransactions, compMonth, compYear, selCat, selSub]);
+
+  const maxVal = Math.max(
+    ...dailyTotals.map(d => d.cumulative),
+    ...(compDailyTotals ? compDailyTotals.map(d => d.cumulative) : []),
+    1
+  );
   const minVal = 0;
   const hasData = dailyTotals.some(d => d.daily > 0);
 
@@ -922,12 +967,12 @@ function LineChart({ transactions, month, year, taxonomy }) {
   const W = 660, H = 180, PL = 52, PB = 28, PT = 16, PR = 16;
   const cW = W - PL - PR, cH = H - PB - PT;
 
-  const xPx = d => PL + ((d - 1) / Math.max(daysInMonth - 1, 1)) * cW;
-  const yPx = v => PT + cH - (v / chartMax) * cH;
+  const xPx     = d => PL + ((d - 1) / Math.max(daysInMonth - 1, 1)) * cW;
+  const xPxComp = d => PL + ((d - 1) / Math.max(compDaysInMonth - 1, 1)) * cW;
+  const yPx     = v => PT + cH - (v / chartMax) * cH;
 
-  // Build SVG path
-  const activePoints = dailyTotals.filter(d => true); // all days
-  const pathD = activePoints.map((d, i) =>
+  // Build SVG path (primary)
+  const pathD = dailyTotals.map((d, i) =>
     (i === 0 ? "M" : "L") + xPx(d.day).toFixed(1) + " " + yPx(d.cumulative).toFixed(1)
   ).join(" ");
 
@@ -935,6 +980,15 @@ function LineChart({ transactions, month, year, taxonomy }) {
   const areaD = pathD +
     ` L${xPx(daysInMonth).toFixed(1)} ${(PT + cH).toFixed(1)}` +
     ` L${xPx(1).toFixed(1)} ${(PT + cH).toFixed(1)} Z`;
+
+  // Build comparison SVG path
+  const compColor = "#a78bfa";
+  const compPathD = compDailyTotals ? compDailyTotals.map((d, i) =>
+    (i === 0 ? "M" : "L") + xPxComp(d.day).toFixed(1) + " " + yPx(d.cumulative).toFixed(1)
+  ).join(" ") : "";
+  const compAreaD = compPathD ? compPathD +
+    ` L${xPxComp(compDaysInMonth).toFixed(1)} ${(PT + cH).toFixed(1)}` +
+    ` L${xPxComp(1).toFixed(1)} ${(PT + cH).toFixed(1)} Z` : "";
 
   // X-axis ticks — show every 5 days, always show 1 and last
   const xTickDays = days.filter(d => d === 1 || d === daysInMonth || d % 5 === 0);
@@ -950,8 +1004,8 @@ function LineChart({ transactions, month, year, taxonomy }) {
 
   return (
     <div>
-      {/* Controls */}
-      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+      {/* Controls row 1: category + legend */}
+      <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
         <select className="month-select" value={selCat} onChange={e=>handleCatChange(e.target.value)}
           style={{fontSize:11,padding:"5px 10px"}}>
           <option value="__all__">All Categories</option>
@@ -964,10 +1018,44 @@ function LineChart({ transactions, month, year, taxonomy }) {
             {subOptions.map(s=><option key={s} value={s}>{s}</option>)}
           </select>
         )}
-        <div style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto"}}>
-          <div style={{width:12,height:3,borderRadius:2,background:lineColor}}/>
-          <span style={{fontSize:10,color:"#888"}}>{lineLabel}</span>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginLeft:"auto",flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:5}}>
+            <div style={{width:12,height:3,borderRadius:2,background:lineColor}}/>
+            <span style={{fontSize:10,color:"#888"}}>{lineLabel} — {MONTHS[month]} {year}</span>
+          </div>
+          {showComp&&compDailyTotals&&(
+            <div style={{display:"flex",alignItems:"center",gap:5}}>
+              <div style={{width:12,height:3,borderRadius:2,background:compColor,opacity:0.8}}/>
+              <span style={{fontSize:10,color:"#888"}}>{MONTHS[compMonth]} {compYear}</span>
+            </div>
+          )}
         </div>
+      </div>
+
+      {/* Controls row 2: comparison toggle + selectors */}
+      <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+        <button
+          className={"btn chip-sm "+(showComp?"chip-active":"chip-inactive")}
+          style={{fontSize:10,padding:"3px 10px"}}
+          onClick={()=>setShowComp(v=>!v)}>
+          {showComp?"Hide comparison":"+ Compare month"}
+        </button>
+        {showComp&&(
+          <>
+            <button className="btn chip-sm chip-inactive" style={{fontSize:10,padding:"3px 10px",borderColor:"#a78bfa44",color:"#a78bfa"}}
+              onClick={setLastMonth}>Last Month</button>
+            <button className="btn chip-sm chip-inactive" style={{fontSize:10,padding:"3px 10px",borderColor:"#a78bfa44",color:"#a78bfa"}}
+              onClick={setLastYear}>Last Year</button>
+            <select className="month-select" value={compMonth} onChange={e=>setCompMonth(parseInt(e.target.value))}
+              style={{fontSize:11,padding:"4px 8px"}}>
+              {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
+            </select>
+            <select className="month-select" value={compYear} onChange={e=>setCompYear(parseInt(e.target.value))}
+              style={{fontSize:11,padding:"4px 8px"}}>
+              {compYears.map(y=><option key={y} value={y}>{y}</option>)}
+            </select>
+          </>
+        )}
       </div>
 
       {!hasData ? (
@@ -997,6 +1085,14 @@ function LineChart({ transactions, month, year, taxonomy }) {
               <text key={d} x={xPx(d)} y={H-PB+12} textAnchor="middle" fill="#444" fontSize="8">{d}</text>
             ))}
 
+            {/* Comparison area + line (rendered first, behind primary) */}
+            {compDailyTotals&&compPathD&&(
+              <>
+                <path d={compAreaD} fill={compColor} opacity="0.06"/>
+                <path d={compPathD} fill="none" stroke={compColor} strokeWidth="1.5" strokeDasharray="4 3" strokeLinejoin="round" strokeLinecap="round" opacity="0.75"/>
+              </>
+            )}
+
             {/* Area fill */}
             <path d={areaD} fill={lineColor} opacity="0.07"/>
 
@@ -1015,16 +1111,19 @@ function LineChart({ transactions, month, year, taxonomy }) {
             {/* Hover dot + tooltip */}
             {hovData&&(()=>{
               const cx=xPx(hovData.day),cy=yPx(hovData.cumulative);
-              const tipW=120,tipH=hovData.daily>0?46:32;
+              const compHov=compDailyTotals?compDailyTotals.find(d=>d.day===hovData.day):null;
+              const tipW=136,tipH=compHov?(hovData.daily>0?68:54):(hovData.daily>0?46:32);
               const tipX=cx+tipW+10>W-PR?cx-tipW-6:cx+8;
               const tipY=Math.max(PT,cy-tipH/2);
               return(
                 <g style={{pointerEvents:"none"}}>
                   <circle cx={cx} cy={cy} r={4} fill={lineColor} stroke="#181818" strokeWidth="2"/>
+                  {compHov&&<circle cx={xPxComp(hovData.day)} cy={yPx(compHov.cumulative)} r={3} fill={compColor} stroke="#181818" strokeWidth="1.5" opacity="0.8"/>}
                   <rect x={tipX} y={tipY} width={tipW} height={tipH} fill="#242424" stroke="#444" strokeWidth="0.75" rx="5"/>
                   <text x={tipX+8} y={tipY+12} fill="#888" fontSize="8">{MONTHS[month].slice(0,3)+" "+hovData.day+", "+year}</text>
                   <text x={tipX+8} y={tipY+25} fill={lineColor} fontSize="9" fontWeight="600">{"∑ "+fmt(hovData.cumulative)}</text>
                   {hovData.daily>0&&<text x={tipX+8} y={tipY+38} fill="#888" fontSize="8">{"+"+fmt(hovData.daily)+" today"}</text>}
+                  {compHov&&<text x={tipX+8} y={tipY+(hovData.daily>0?52:38)} fill={compColor} fontSize="8" opacity="0.85">{"vs "+MONTHS[compMonth].slice(0,3)+" ∑ "+fmt(compHov.cumulative)}</text>}
                 </g>
               );
             })()}
@@ -2744,7 +2843,7 @@ function App() {
             {monthlyTx.filter(t=>t.type==="expense").length>0&&(
               <div className="card" style={{padding:20,marginBottom:16}}>
                 <div className="sl">Cumulative Expenses — {MONTHS[monthYear.month]} {monthYear.year}</div>
-                <LineChart transactions={monthlyTx} month={monthYear.month} year={monthYear.year} taxonomy={taxonomy}/>
+                <LineChart transactions={monthlyTx} allTransactions={viewTx} month={monthYear.month} year={monthYear.year} taxonomy={taxonomy}/>
               </div>
             )}
             {monthlyTx.length===0&&(
