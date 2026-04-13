@@ -1099,6 +1099,18 @@ function LineChart({ transactions, allTransactions, month, year, taxonomy }) {
               <text key={d} x={xPx(d)} y={H-PB+12} textAnchor="middle" fill="#444" fontSize="8">{d}</text>
             ))}
 
+            {/* Today marker — only shown when viewing the current month */}
+            {month===new Date().getMonth()&&year===new Date().getFullYear()&&(()=>{
+              const todayDay=new Date().getDate();
+              const tx=xPx(todayDay);
+              return(
+                <g style={{pointerEvents:"none"}}>
+                  <line x1={tx} x2={tx} y1={PT} y2={PT+cH} stroke="#e8e0d5" strokeWidth="1" strokeDasharray="3 4" opacity="0.25"/>
+                  <text x={tx+3} y={PT+9} fill="#888" fontSize="7.5" letterSpacing="0.04em">today</text>
+                </g>
+              );
+            })()}
+
             {/* Comparison area + line (rendered first, behind primary) */}
             {compDailyTotals&&compPathD&&(
               <>
