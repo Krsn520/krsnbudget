@@ -2117,7 +2117,16 @@ function App() {
 
   // ── Backup ────────────────────────────────────────────────────────────────
   function handleBackupExport(){
-    const b={version:3,exportedAt:new Date().toISOString(),transactions,taxonomy,descRules,accounts};
+    const b={
+      version:4,
+      exportedAt:new Date().toISOString(),
+      transactions,
+      taxonomy,
+      descRules,
+      accounts,
+      rolloverSubs:[...rolloverSubs],
+      rolloverMode:[...rolloverMode],
+    };
     const blob=new Blob([JSON.stringify(b,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);
     const a=document.createElement("a");a.href=url;a.download=`budget-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);
   }
@@ -2128,13 +2137,15 @@ function App() {
       try{
         const b=JSON.parse(evt.target.result);
         const v=b&&b.version;
-        const isValidVersion=(v===1||v===2||v===3);
+        const isValidVersion=(v===1||v===2||v===3||v===4);
         const hasData=b&&Array.isArray(b.transactions);
         if(!hasData||!isValidVersion){showConfirm("Invalid backup file","This file doesn't appear to be a valid Budget Tracker backup.","OK",false,()=>{});return;}
         const txN=(b.transactions||[]).length,taxN=(b.taxonomy||[]).length,rN=(b.descRules||[]).length,acctN=(b.accounts||[]).length;
-        const detail=`This will permanently overwrite all current data with ${txN} transaction${txN!==1?"s":""}, ${acctN} account${acctN!==1?"s":""}, ${taxN} categor${taxN!==1?"ies":"y"}, and ${rN} rule${rN!==1?"s":""}. This cannot be undone.`
+        const rolloverN=Array.isArray(b.rolloverSubs)?b.rolloverSubs.length:0;
+        const detail=`This will permanently overwrite all current data with ${txN} transaction${txN!==1?"s":""}, ${acctN} account${acctN!==1?"s":""}, ${taxN} categor${taxN!==1?"ies":"y"}, ${rN} rule${rN!==1?"s":""}${rolloverN>0?`, and ${rolloverN} rollover setting${rolloverN!==1?"s":""}`:""}. This cannot be undone.`
           +(v===1?" (Legacy v1 backup — transactions will appear as Not Linked until assigned to an account.)"
-           :v===2?" (v2 backup — nickname fields on transactions and rules will be empty and can be re-added manually.)":"");
+           :v===2?" (v2 backup — nickname fields on transactions and rules will be empty and can be re-added manually.)"
+           :v===3?" (v3 backup — rollover settings were not included and will be reset.)":"");
         pendingBackupRef.current=b;
         showConfirm("Restore this backup?",detail,"Restore Backup",true,()=>{
           const bk=pendingBackupRef.current;
@@ -2155,6 +2166,9 @@ function App() {
           }
           if(Array.isArray(bk.taxonomy)&&bk.taxonomy.length>0)setTaxonomy(bk.taxonomy);
           if(Array.isArray(bk.descRules)&&bk.descRules.length>0)setDescRules(bk.descRules);
+          // Rollover settings (v4+)
+          if(Array.isArray(bk.rolloverSubs))setRolloverSubs(new Set(bk.rolloverSubs));
+          if(Array.isArray(bk.rolloverMode))setRolloverMode(new Map(bk.rolloverMode));
           pendingBackupRef.current=null;
         });
       }catch(err){showConfirm("Could not read file","Make sure it is a valid JSON backup exported from this app.","OK",false,()=>{});}
