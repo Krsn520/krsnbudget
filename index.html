@@ -30,8 +30,6 @@
     .btn-icon:hover { border-color: #555; color: #ccc; }
     .btn-danger { background: transparent; color: #737373; padding: 4px 8px; border: none; font-size: 17px; line-height: 1; cursor: pointer; font-family: inherit; transition: color 0.15s; }
     .btn-danger:hover { color: #f43f5e; }
-    .btn-rule { background: transparent; color: #606060; padding: 3px 7px; border: 1px solid #242424; border-radius: 5px; font-size: 11px; line-height: 1.4; cursor: pointer; font-family: inherit; transition: all 0.15s; flex-shrink: 0; }
-    .btn-rule:hover { border-color: #8b5cf6; color: #8b5cf6; }
     .btn-reset { background: transparent; color: #888888; padding: 6px 12px; border: 1px solid #2a2a2a; border-radius: 7px; font-family: inherit; font-size: 10px; letter-spacing: 0.1em; cursor: pointer; transition: all 0.15s; text-transform: uppercase; }
     .btn-reset:hover { border-color: #f43f5e44; color: #f43f5e; }
     .input { background: #111; border: 1px solid #252525; border-radius: 8px; color: #e8e0d5; font-family: inherit; font-size: 13px; padding: 10px 14px; width: 100%; outline: none; transition: border-color 0.2s; }
@@ -50,7 +48,6 @@
     .tx-row { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #1c1c1c; transition: background 0.12s; }
     .tx-row:last-child { border-bottom: none; }
     .tx-row:hover { background: #1b1b1b; }
-    .tx-row:hover .btn-rule { color: #888888; border-color: #2a2a2a; }
     .edit-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #1c1c1c; transition: background 0.12s; }
     .edit-row:last-child { border-bottom: none; }
     .edit-row:hover { background: #1a1a1a; }
@@ -91,7 +88,7 @@
     .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; border: none; background: transparent; font-family: inherit; color: #606060; transition: color 0.15s, background 0.15s; padding: 8px 4px; }
     .nav-item:hover { color: #999; background: #161616; }
     .nav-item.nav-active { color: #e8e0d5; position: relative; }
-    .nav-item.nav-active::before { content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 24px; height: 2px; background: #e8e0d5; border-radius: 0 0 3px 3px; }
+    .nav-item.nav-active::before { content: ""; position: absolute; top: 0; left: 20%; right: 20%; height: 2px; background: #e8e0d5; border-radius: 0 0 2px 2px; }
     .nav-item.nav-add { color: #0d0d0d; background: #e8e0d5; border-radius: 0; }
     .nav-item.nav-add:hover { background: #fff; color: #0d0d0d; }
     .nav-icon { font-size: 18px; line-height: 1; }
@@ -150,8 +147,14 @@ function getSubcats(taxonomy, cat, tf) {
   });
   return out;
 }
-function getTaxonomyEntry(taxonomy, cat, sub) {
-  return taxonomy.find(t => t.category === cat && t.subcategory === sub) || {};
+function getTaxonomyEntry(taxonomy, cat, sub, preferredType) {
+  const matches = taxonomy.filter(t => t.category === cat && t.subcategory === sub);
+  if (!matches.length) return {};
+  if (preferredType) {
+    const typed = matches.find(t => t.type === preferredType);
+    if (typed) return typed;
+  }
+  return matches[0];
 }
 
 // ── matchDesc: type:"auto" resolves to income/expense based on amount sign ────
@@ -259,7 +262,7 @@ const RULE_TYPES = [
 ];
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-const STORAGE_KEY = "budget-tracker-v2", TAXONOMY_KEY = "budget-tracker-taxonomy", RULES_KEY = "budget-tracker-rules", ACCOUNTS_KEY = "budget-tracker-accounts";
+const STORAGE_KEY = "budget-tracker-v2", TAXONOMY_KEY = "budget-tracker-taxonomy", RULES_KEY = "budget-tracker-rules", ACCOUNTS_KEY = "budget-tracker-accounts", ROLLOVER_KEY = "budget-tracker-rollover", ROLLOVER_MODE_KEY = "budget-tracker-rollover-mode", ROLLOVER_SUBS_KEY = "budget-tracker-rollover-subs";
 const ACCOUNT_TYPE_META = {
   chequing: { label:"Chequing",    icon:"🏦", color:"#3b82f6", hint:"Debits are expenses, credits are income" },
   savings:  { label:"Savings",     icon:"🪙", color:"#10b981", hint:"Same sign convention as chequing" },
@@ -274,7 +277,7 @@ const SEED = [
   { id:SEED_BASE+4, description:"Shaw Internet",  amount:-59.75, category:"Utilities",    subcategory:"Internet Bill",type:"expense", date:"2026-02-01" },
   { id:SEED_BASE+5, description:"Whole Foods",    amount:-62.5,  category:"Groceries",    subcategory:"Groceries",    type:"expense", date:"2026-03-01" },
 ];
-const BLANK      = { description:"", amount:"", typeFilter:"expense", category:"", subcategory:"", date:new Date().toISOString().split("T")[0], note:"" };
+const BLANK      = { description:"", amount:"", typeFilter:"expense", category:"", subcategory:"", date:new Date().toISOString().split("T")[0], note:"", accountId:null };
 const BLANK_TAX  = { category:"", subcategory:"", type:"expense", budget:0 };
 // Default rule type is now "auto"
 const BLANK_RULE = { pattern:"", category:"", subcategory:"", type:"auto", nickname:"" };
@@ -454,65 +457,64 @@ function CreateRuleModal({ tx, taxonomy, onSave, onCancel }) {
 }
 
 // ── TxRow ─────────────────────────────────────────────────────────────────────
-function TxRow({ t, onRemove, onEdit, onCreateRule, onEditAmount, isRecurring }) {
+function TxRow({ t, onRemove, onEdit, editTxAmount }) {
   const ts = TYPE_STYLE[t.type] || TYPE_STYLE.notreported;
   const amtColor = t.type==="income"?"#10b981":t.type==="notreported"?"#9ca3af":"#f43f5e";
   const prefix   = t.type==="income"?"+":t.type==="notreported"?"±":"";
   const acctMeta = t.source?ACCOUNT_TYPE_META[t.source]:null;
   const displayName = t.nickname && t.nickname.trim() ? t.nickname.trim() : t.description;
   const hasNickname = !!(t.nickname && t.nickname.trim() && t.nickname.trim() !== t.description);
-
-  // ── Swipe-to-delete ──────────────────────────────────────────────────────
-  const [swipeX, setSwipeX]   = useState(0);
-  const [swiping, setSwiping] = useState(false);
-  const ptrStart = useRef(null);
-  const SWIPE_DEL = 80;
-  function onPtrDown(e) {
-    if (e.target.closest(".btn-danger,.btn-rule,.amt-wrap")) return;
-    ptrStart.current = { x: e.clientX, y: e.clientY };
-    setSwiping(true);
+  const [swipeX, setSwipeX] = useState(0);
+  const [editingAmt, setEditingAmt] = useState(false);
+  const [amtDraft, setAmtDraft] = useState("");
+  const pointerStartX = useRef(null);
+  const isDragging = useRef(false);
+  const SWIPE_DEL = 72;
+  function onPointerDown(e){
+    if(e.target.closest&&e.target.closest(".btn-danger,.amt-edit"))return;
+    pointerStartX.current=e.clientX;
+    isDragging.current=false;
     e.currentTarget.setPointerCapture(e.pointerId);
   }
-  function onPtrMove(e) {
-    if (!swiping || !ptrStart.current) return;
-    const dx = e.clientX - ptrStart.current.x;
-    if (dx < 0) setSwipeX(dx);
+  function onPointerMove(e){
+    if(pointerStartX.current===null)return;
+    const dx=pointerStartX.current-e.clientX;
+    if(dx>4){isDragging.current=true;setSwipeX(Math.min(dx,SWIPE_DEL+20));}
+    else if(dx<-4){isDragging.current=false;setSwipeX(0);}
   }
-  function onPtrUp(e) {
-    if (!swiping) return;
-    setSwiping(false);
-    const dx = ptrStart.current ? e.clientX - ptrStart.current.x : 0;
-    const dy = ptrStart.current ? e.clientY - ptrStart.current.y : 0;
-    ptrStart.current = null;
-    setSwipeX(0);
-    if (Math.abs(dx) < 6 && Math.abs(dy) < 6) { if (onEdit) onEdit(t); }
-    else if (dx < -SWIPE_DEL) onRemove(t.id);
+  function onPointerUp(){
+    if(swipeX>=SWIPE_DEL){onRemove(t.id);}
+    else{setSwipeX(0);}
+    pointerStartX.current=null;
   }
-
-  // ── Inline amount edit ───────────────────────────────────────────────────
-  const [editingAmt, setEditingAmt] = useState(null);
-  function startAmtEdit(e) { e.stopPropagation(); setEditingAmt(Math.abs(t.amount).toFixed(2)); }
-  function commitAmt() {
-    const v = parseFloat(editingAmt);
-    if (!isNaN(v) && v > 0 && onEditAmount) onEditAmount(t.id, v);
-    setEditingAmt(null);
+  function onPointerCancel(){setSwipeX(0);pointerStartX.current=null;}
+  function startAmtEdit(e){
+    e.stopPropagation();
+    setAmtDraft(String(Math.abs(t.amount)));
+    setEditingAmt(true);
   }
-
-  const revealPct = Math.min(-swipeX / SWIPE_DEL, 1);
-
+  function commitAmt(){
+    const v=parseFloat(amtDraft);
+    if(!isNaN(v)&&v>0&&editTxAmount)editTxAmount(t.id,v);
+    setEditingAmt(false);
+  }
+  const deleteOpacity=Math.min(swipeX/SWIPE_DEL,1);
   return (
     <div style={{position:"relative",overflow:"hidden"}}>
-      <div style={{position:"absolute",right:0,top:0,bottom:0,width:"100%",display:"flex",justifyContent:"flex-end",alignItems:"center",paddingRight:20,background:`rgba(244,63,94,${0.18*revealPct})`,pointerEvents:"none"}}>
-        <span style={{color:"#f43f5e",fontSize:11,fontWeight:700,opacity:revealPct,letterSpacing:"0.12em",textTransform:"uppercase"}}>Delete</span>
+      <div style={{position:"absolute",right:0,top:0,bottom:0,width:SWIPE_DEL+20,background:"#f43f5e",display:"flex",alignItems:"center",justifyContent:"center",gap:5,pointerEvents:"none"}}>
+        <span style={{fontSize:13,color:"#fff",opacity:deleteOpacity,transition:"opacity 0.1s"}}>Delete</span>
       </div>
-      <div
-        className="tx-row"
-        style={{cursor:"pointer",borderLeft:"3px solid "+amtColor,transform:`translateX(${swipeX}px)`,transition:swiping?"none":"transform 0.18s ease",touchAction:"pan-y",position:"relative",zIndex:1,userSelect:"none"}}
-        onPointerDown={onPtrDown}
-        onPointerMove={onPtrMove}
-        onPointerUp={onPtrUp}
-        onPointerCancel={()=>{setSwiping(false);setSwipeX(0);}}
-      >
+      <div className="tx-row" style={{cursor:"pointer",transform:`translateX(-${swipeX}px)`,transition:swipeX===0?"transform 0.2s ease":"none",background:"#181818",position:"relative",zIndex:1,touchAction:"pan-y",borderLeft:"3px solid "+amtColor}}
+        onClick={e=>{
+          if(isDragging.current){isDragging.current=false;return;}
+          if(swipeX>8){setSwipeX(0);return;}
+          if(e.target.closest&&e.target.closest(".btn-danger,.amt-edit"))return;
+          if(onEdit)onEdit(t);
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}>
         <div style={{width:7,height:7,borderRadius:"50%",background:catColor(t.category),flexShrink:0,marginTop:t.note?2:0}}/>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:13,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:"#ddd"}}>{displayName}</div>
@@ -526,24 +528,18 @@ function TxRow({ t, onRemove, onEdit, onCreateRule, onEditAmount, isRecurring })
               ?<span className="tag" style={{background:(acctMeta?acctMeta.color:"#bbbbbb")+"18",color:(acctMeta?acctMeta.color:"#bbbbbb"),fontSize:9}}>{t.accountName}</span>
               :<span className="tag" style={{background:"#f9731618",color:"#f97316",fontSize:9}}>Not linked</span>
             }
-            {isRecurring&&<span className="tag" style={{background:"#8b5cf618",color:"#a78bfa",fontSize:9}}>↻ recurring</span>}
           </div>
           {t.note && <div style={{fontSize:11,color:"#777777",marginTop:4,fontStyle:"italic",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>"{t.note}"</div>}
         </div>
-        {editingAmt!==null?(
-          <input className="amt-wrap" autoFocus value={editingAmt} onChange={e=>setEditingAmt(e.target.value)}
-            onBlur={commitAmt} onKeyDown={e=>{if(e.key==="Enter")commitAmt();if(e.key==="Escape")setEditingAmt(null);}}
-            onClick={e=>e.stopPropagation()}
-            style={{width:84,background:"#1a1a1a",border:"1px solid "+amtColor,borderRadius:6,color:amtColor,fontWeight:600,fontSize:13,padding:"3px 7px",fontFamily:"inherit",textAlign:"right",outline:"none"}}/>
-        ):(
-          <div className="amt-wrap" title="Tap to edit amount" onClick={startAmtEdit}
-            style={{fontWeight:600,fontSize:14,color:amtColor,whiteSpace:"nowrap",flexShrink:0,cursor:"text",padding:"2px 4px",borderRadius:4,transition:"background 0.12s"}}
-            onMouseEnter={e=>e.currentTarget.style.background="#1e1e1e"}
-            onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-            {prefix}{fmt(Math.abs(t.amount))}
-          </div>
-        )}
-        <button className="btn-rule" title="Create rule from this transaction" onClick={e=>{e.stopPropagation();if(onCreateRule)onCreateRule(t);}}>✦</button>
+        {editingAmt
+          ?<input className="amt-edit" style={{width:72,background:"#111",border:"1px solid #555",borderRadius:5,color:amtColor,fontFamily:"inherit",fontSize:13,fontWeight:600,padding:"2px 6px",textAlign:"right"}}
+            value={amtDraft} autoFocus
+            onChange={e=>setAmtDraft(e.target.value)}
+            onBlur={commitAmt}
+            onKeyDown={e=>{if(e.key==="Enter")commitAmt();if(e.key==="Escape")setEditingAmt(false);}}
+            onClick={e=>e.stopPropagation()}/>
+          :<div className="amt-edit" style={{fontWeight:600,fontSize:14,color:amtColor,whiteSpace:"nowrap",flexShrink:0,cursor:"text"}} onClick={startAmtEdit}>{prefix}{fmt(Math.abs(t.amount))}</div>
+        }
         <button className="btn-danger" onClick={e=>{e.stopPropagation();onRemove(t.id);}}>×</button>
       </div>
     </div>
@@ -678,10 +674,24 @@ function BarChart({ transactions, currentMonth, currentYear, onMonthClick }) {
           );
         })()}
       </svg>
-      <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:4}}>
-        <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:8,height:8,borderRadius:2,background:"#10b981"}}/><span style={{fontSize:10,color:"#888888"}}>Income</span></div>
-        <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:8,height:8,borderRadius:2,background:"#f43f5e"}}/><span style={{fontSize:10,color:"#888888"}}>Expenses</span></div>
-        <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontSize:10,color:"#888888"}}>↑ click a month to view it</span></div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:4}}>
+        <div style={{display:"flex",gap:16,alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:8,height:8,borderRadius:2,background:"#10b981"}}/><span style={{fontSize:10,color:"#888888"}}>Income</span></div>
+          <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:8,height:8,borderRadius:2,background:"#f43f5e"}}/><span style={{fontSize:10,color:"#888888"}}>Expenses</span></div>
+          <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontSize:10,color:"#888888"}}>↑ click a month to view it</span></div>
+        </div>
+        <div style={{display:"flex",gap:4,flexShrink:0}}>
+          {(()=>{
+            const prevM=currentMonth===0?11:currentMonth-1;
+            const prevY=currentMonth===0?currentYear-1:currentYear;
+            const nextM=currentMonth===11?0:currentMonth+1;
+            const nextY=currentMonth===11?currentYear+1:currentYear;
+            return(<>
+              <button className="btn-icon" style={{padding:"2px 9px",fontSize:12,lineHeight:1}} onClick={()=>onMonthClick&&onMonthClick(prevM,prevY)}>←</button>
+              <button className="btn-icon" style={{padding:"2px 9px",fontSize:12,lineHeight:1}} onClick={()=>onMonthClick&&onMonthClick(nextM,nextY)}>→</button>
+            </>);
+          })()}
+        </div>
       </div>
     </div>
   );
@@ -1061,10 +1071,6 @@ function LineChart({ transactions, allTransactions, month, year, taxonomy }) {
   // Hover state
   const [hovDay, setHovDay] = useState(null);
   const hovData = hovDay !== null ? dailyTotals.find(d => d.day === hovDay) : null;
-  const today = new Date();
-  const todayInMonth = today.getMonth() === month && today.getFullYear() === year;
-  const todayDay = todayInMonth ? today.getDate() : null;
-  const todayX = todayDay ? xPx(todayDay) : null;
 
   // Line color based on selection
   const lineColor = selCat === "__all__" ? "#f43f5e" : catColor(selCat);
@@ -1153,6 +1159,18 @@ function LineChart({ transactions, allTransactions, month, year, taxonomy }) {
             {xTickDays.map(d=>(
               <text key={d} x={xPx(d)} y={H-PB+12} textAnchor="middle" fill="#444" fontSize="8">{d}</text>
             ))}
+
+            {/* Today marker — only shown when viewing the current month */}
+            {month===new Date().getMonth()&&year===new Date().getFullYear()&&(()=>{
+              const todayDay=new Date().getDate();
+              const tx=xPx(todayDay);
+              return(
+                <g style={{pointerEvents:"none"}}>
+                  <line x1={tx} x2={tx} y1={PT} y2={PT+cH} stroke="#e8e0d5" strokeWidth="1" strokeDasharray="3 4" opacity="0.25"/>
+                  <text x={tx+3} y={PT+9} fill="#888" fontSize="7.5" letterSpacing="0.04em">today</text>
+                </g>
+              );
+            })()}
 
             {/* Comparison area + line (rendered first, behind primary) */}
             {compDailyTotals&&compPathD&&(
@@ -1326,15 +1344,25 @@ function TaxPanel({ panelType, taxonomy, collapsedCats, setCollapsedCats,
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
             <div>
               <div style={{ fontSize: 9, color: "#737373", marginBottom: 3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Category</div>
-              <input className="input-sm" list={"cat-list-" + panelType} placeholder="e.g. Groceries" value={newTax.category}
+              <input className="input-sm" list={"cat-list-" + panelType} placeholder={isExpense?"e.g. Groceries":"e.g. Work"} value={newTax.category}
                 onChange={e => setNewTax(f => ({ ...f, category: e.target.value, subcategory: "" }))} />
-              <datalist id={"cat-list-" + panelType}>{allCats.map(c => <option key={c} value={c} />)}</datalist>
+              <datalist id={"cat-list-" + panelType}>
+                {(isExpense ? computeExpenseCats(taxonomy) : computeIncomeCats(taxonomy)).map(c => <option key={c} value={c} />)}
+              </datalist>
             </div>
             <div>
               <div style={{ fontSize: 9, color: "#737373", marginBottom: 3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Subcategory</div>
               <input className="input-sm" list={"sub-list-" + panelType} placeholder="e.g. Weekly Shop" value={newTax.subcategory}
                 onChange={e => setNewTax(f => ({ ...f, subcategory: e.target.value }))} />
-              <datalist id={"sub-list-" + panelType}>{taxSubcats.map(s => <option key={s} value={s} />)}</datalist>
+              <datalist id={"sub-list-" + panelType}>
+                {(()=>{
+                  if(!newTax.category)return[];
+                  const tf=isExpense?"expense":"income";
+                  const seen={},out=[];
+                  taxonomy.forEach(t=>{if(t.category===newTax.category&&!seen[t.subcategory]){const m=tf==="notreported"?t.type==="notreported":(t.type===tf||t.type==="notreported");if(m){seen[t.subcategory]=1;out.push(t.subcategory);}}});
+                  return out;
+                })().map(s => <option key={s} value={s} />)}
+              </datalist>
             </div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, alignItems: "end" }}>
@@ -1607,7 +1635,7 @@ function App() {
   const [importAmtCol, setImportAmtCol]     = useState(null);
   const [importDescCol, setImportDescCol]   = useState(null);
   const [importStatus, setImportStatus]     = useState(null);
-  const [activeTab, setActiveTab]           = useState("transactions");
+  const [activeTab, setActiveTab]           = useState(()=>{ try{return sessionStorage.getItem("bt-activeTab")||"transactions";}catch{return "transactions";} });
   const [selectedAccountId, setSelectedAccountId] = useState(()=>{ try{const v=sessionStorage.getItem("bt-acctId");return v==="null"?null:v||null;}catch{return null;} });
   const [monthYear, setMonthYear]           = useState({ month:now.getMonth(), year:now.getFullYear() });
   const [taxonomy, setTaxonomy]             = useState(DEFAULT_TAXONOMY);
@@ -1622,8 +1650,10 @@ function App() {
   const [unmatchedQueue, setUnmatchedQueue] = useState([]);
   const [searchQuery, setSearchQuery]       = useState(()=>{ try{return sessionStorage.getItem("bt-search")||"";}catch{return "";} });
 
-  const [amountMin, setAmountMin]           = useState("");
-  const [amountMax, setAmountMax]           = useState("");
+  const [amountMin, setAmountMin]           = useState(()=>{ try{return sessionStorage.getItem("bt-amtMin")||"";}catch{return "";} });
+  const [amountMax, setAmountMax]           = useState(()=>{ try{return sessionStorage.getItem("bt-amtMax")||"";}catch{return "";} });
+  const [rolloverSubs, setRolloverSubs]     = useState(()=>{ try{const r=localStorage.getItem(ROLLOVER_SUBS_KEY);return new Set(r?JSON.parse(r):[]);}catch{return new Set();} });
+  const [rolloverMode, setRolloverMode]     = useState(()=>{ try{const r=localStorage.getItem(ROLLOVER_MODE_KEY);return r?new Map(JSON.parse(r)):new Map();}catch{return new Map();} });
   const [txPage, setTxPage]                 = useState(()=>{ try{return parseInt(sessionStorage.getItem("bt-page")||"0")||0;}catch{return 0;} });
   const [editingTx, setEditingTx]           = useState(null);
   const [editForm, setEditForm]             = useState({});
@@ -1653,12 +1683,6 @@ function App() {
   const [reviewSplits, setReviewSplits]     = useState([]);
 
   const [isNewUser, setIsNewUser]           = useState(false);
-  const [onboardStep, setOnboardStep]       = useState("welcome"); // welcome | category | rule | transaction | done
-  const [obCat, setObCat]                   = useState({category:"",subcategory:"",type:"expense",budget:0});
-  const [obRule, setObRule]                 = useState({pattern:"",category:"",subcategory:"",type:"auto"});
-  const [obTx, setObTx]                     = useState({description:"",amount:"",typeFilter:"expense",category:"",subcategory:"",date:new Date().toISOString().split("T")[0],note:""});
-  const [obRuleError, setObRuleError]       = useState("");
-  const [obAmtError, setObAmtError]         = useState("");
   const backupRef        = useRef(null);
   const pendingBackupRef = useRef(null);
   const undoTimerRef     = useRef(null);
@@ -1687,35 +1711,6 @@ function App() {
     ruleToastTimer.current = setTimeout(() => setRuleToast(null), 4000);
   }
 
-  // ── Onboarding helpers ────────────────────────────────────────────────────
-  function obCommitCategory(){
-    if(!obCat.category.trim()||!obCat.subcategory.trim())return;
-    // Only add if not already a duplicate
-    const exists=taxonomy.some(t=>t.category===obCat.category.trim()&&t.subcategory===obCat.subcategory.trim()&&t.type===obCat.type);
-    if(!exists)setTaxonomy(prev=>[...prev,{category:obCat.category.trim(),subcategory:obCat.subcategory.trim(),type:obCat.type,budget:parseFloat(obCat.budget)||0}]);
-    setObCat({category:"",subcategory:"",type:"expense",budget:0});
-    setOnboardStep("rule");
-  }
-  function obCommitRule(){
-    setObRuleError("");
-    const p=obRule.pattern.trim();
-    if(!p||!obRule.category||!obRule.subcategory){setObRuleError("Fill in all fields or skip this step.");return;}
-    if(!isSafePattern(p)){setObRuleError("Invalid regex pattern — check for syntax errors.");return;}
-    setDescRules(prev=>[...prev,{pattern:p,category:obRule.category,subcategory:obRule.subcategory,type:obRule.type}]);
-    setObRule({pattern:"",category:"",subcategory:"",type:"auto"});
-    setOnboardStep("transaction");
-  }
-  function obCommitTransaction(){
-    setObAmtError("");
-    const desc=obTx.description.trim();
-    const amt=parseFloat(obTx.amount);
-    if(!desc||isNaN(amt)||amt<=0){setObAmtError(!desc?"Enter a description.":isNaN(amt)||amt<=0?"Enter a valid positive amount.":"");return;}
-    if(!obTx.category||!obTx.subcategory){setObAmtError("Select a category and subcategory.");return;}
-    const sign=obTx.typeFilter==="income"?1:-1;
-    const tx={id:Date.now()+Math.random(),description:desc,nickname:"",amount:obTx.typeFilter==="notreported"?amt:sign*amt,category:obTx.category,subcategory:obTx.subcategory,type:obTx.typeFilter,date:obTx.date,note:obTx.note||""};
-    setTransactions(prev=>[tx,...prev]);
-    setOnboardStep("done");
-  }
   function obFinish(){
     setIsNewUser(false);
   }
@@ -1736,12 +1731,17 @@ function App() {
   useEffect(()=>{if(!loaded)return;try{localStorage.setItem(TAXONOMY_KEY,JSON.stringify(taxonomy));}catch(e){}},[taxonomy,loaded]);
   useEffect(()=>{if(!loaded)return;try{localStorage.setItem(RULES_KEY,JSON.stringify(descRules));}catch(e){}},[descRules,loaded]);
   useEffect(()=>{if(!loaded)return;try{localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));}catch(e){}},[accounts,loaded]);
+  useEffect(()=>{if(!loaded)return;try{localStorage.setItem(ROLLOVER_SUBS_KEY,JSON.stringify([...rolloverSubs]));}catch(e){}},[rolloverSubs,loaded]);
+  useEffect(()=>{if(!loaded)return;try{localStorage.setItem(ROLLOVER_MODE_KEY,JSON.stringify([...rolloverMode]));}catch(e){}},[rolloverMode,loaded]);
 
   // ── Persist filter/search/page across refresh (sessionStorage) ────────────
   useEffect(()=>{try{sessionStorage.setItem("bt-filterType",filterType);}catch{}},[filterType]);
+  useEffect(()=>{try{sessionStorage.setItem("bt-activeTab",activeTab);}catch{}},[activeTab]);
   useEffect(()=>{try{sessionStorage.setItem("bt-search",searchQuery);}catch{}},[searchQuery]);
   useEffect(()=>{try{sessionStorage.setItem("bt-page",String(txPage));}catch{}},[txPage]);
   useEffect(()=>{try{sessionStorage.setItem("bt-acctId",selectedAccountId===null?"null":String(selectedAccountId));}catch{}},[selectedAccountId]);
+  useEffect(()=>{try{sessionStorage.setItem("bt-amtMin",amountMin);}catch{}},[amountMin]);
+  useEffect(()=>{try{sessionStorage.setItem("bt-amtMax",amountMax);}catch{}},[amountMax]);
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(()=>{
@@ -1783,7 +1783,7 @@ function App() {
     taxonomy.forEach(t=>{if(t.category===editingRuleVal.category&&!seen[t.subcategory]){const m=tf==="notreported"?t.type==="notreported":(t.type===tf||t.type==="notreported");if(m){seen[t.subcategory]=1;out.push(t.subcategory);}}});
     return out;
   },[taxonomy,editingRuleVal.category,editingRuleVal.type]);
-  const editingTaxSubcats  = useMemo(()=>{if(!editingTaxVal.category)return[];const seen={},out=[];taxonomy.forEach(t=>{if(t.category===editingTaxVal.category&&!seen[t.subcategory]){seen[t.subcategory]=1;out.push(t.subcategory);}});return out;},[taxonomy,editingTaxVal.category]);
+  const editingTaxSubcats  = useMemo(()=>{if(!editingTaxVal.category)return[];const tf=editingTaxVal.type;const seen={},out=[];taxonomy.forEach(t=>{if(t.category===editingTaxVal.category&&!seen[t.subcategory]){const match=!tf||(tf==="notreported"?t.type==="notreported":t.type===tf);if(match){seen[t.subcategory]=1;out.push(t.subcategory);}}});return out;},[taxonomy,editingTaxVal.category,editingTaxVal.type]);
   const ruleSubcats = useMemo(()=>{
     if(!newRule.category)return[];
     const tf = newRule.type==="auto"?"expense":newRule.type;
@@ -1791,8 +1791,18 @@ function App() {
     taxonomy.forEach(t=>{if(t.category===newRule.category&&!seen[t.subcategory]){const m=tf==="notreported"?t.type==="notreported":(t.type===tf||t.type==="notreported");if(m){seen[t.subcategory]=1;out.push(t.subcategory);}}});
     return out;
   },[taxonomy,newRule.category,newRule.type]);
-  const taxSubcats  = useMemo(()=>{if(!newTax.category)return[];const seen={},out=[];taxonomy.forEach(t=>{if(t.category===newTax.category&&!seen[t.subcategory]){seen[t.subcategory]=1;out.push(t.subcategory);}});return out;},[taxonomy,newTax.category]);
+  const taxSubcats  = useMemo(()=>{if(!newTax.category)return[];const tf=newTax.type;const seen={},out=[];taxonomy.forEach(t=>{if(t.category===newTax.category&&!seen[t.subcategory]){const match=!tf||(tf==="notreported"?t.type==="notreported":t.type===tf);if(match){seen[t.subcategory]=1;out.push(t.subcategory);}}});return out;},[taxonomy,newTax.category,newTax.type]);
   const monthlyBudget = useMemo(()=>taxonomy.filter(t=>t.type==="expense").reduce((s,t)=>s+(t.budget||0),0),[taxonomy]);
+  const rulePreviewMatches = useMemo(()=>{
+    const pat=newRule.pattern.trim();
+    if(!pat||!isSafePattern(pat))return[];
+    try{
+      const re=new RegExp(pat,"i");
+      return transactions.filter(t=>!t._splitParent&&re.test(t.description))
+        .sort((a,b)=>new Date(b.date)-new Date(a.date))
+        .slice(0,5);
+    }catch{return[];}
+  },[newRule.pattern,transactions]);
 
   // ── Transaction helpers ───────────────────────────────────────────────────
   function handleCatChange(cat){const subs=getSubcats(taxonomy,cat,form.typeFilter);setForm(f=>({...f,category:cat,subcategory:subs[0]||""}));}
@@ -1807,9 +1817,10 @@ function App() {
     const isDup=transactions.some(t=>t.description.toLowerCase()===form.description.toLowerCase()&&Math.abs(t.amount)===amt&&t.date===form.date);
     if(isDup&&!dupWarning){setDupWarning(true);return;}
     setDupWarning(false);
-    const tax=getTaxonomyEntry(taxonomy,form.category,form.subcategory);
+    const tax=getTaxonomyEntry(taxonomy,form.category,form.subcategory,form.typeFilter);
     const rt=tax.type||form.typeFilter,sign=rt==="income"?1:-1;
-    setTransactions(prev=>[{id:Date.now(),description:form.description,nickname:"",amount:sign*amt,category:form.category,subcategory:form.subcategory,type:rt,date:form.date,note:form.note||""},...prev]);
+    const linkedAcct=form.accountId?accounts.find(a=>a.id===form.accountId):null;
+    setTransactions(prev=>[{id:Date.now(),description:form.description,nickname:"",amount:sign*amt,category:form.category,subcategory:form.subcategory,type:rt,date:form.date,note:form.note||"",accountId:linkedAcct?linkedAcct.id:null,accountName:linkedAcct?linkedAcct.name:null,source:linkedAcct?linkedAcct.type:null},...prev]);
     setForm(BLANK);setShowForm(false);
   }
   function removeTx(id){
@@ -1817,12 +1828,8 @@ function App() {
     setTransactions(prev=>prev.filter(t=>t.id!==id));
     if(tx)scheduleUndo(tx);
   }
-  function editTxAmount(id, newAbs){
-    setTransactions(prev=>prev.map(t=>{
-      if(t.id!==id)return t;
-      const sign=t.amount<0?-1:1;
-      return{...t,amount:sign*newAbs};
-    }));
+  function editTxAmount(id,newAbs){
+    setTransactions(prev=>prev.map(t=>t.id===id?{...t,amount:t.amount<0?-newAbs:newAbs}:t));
   }
 
   // ── Edit Tx modal ─────────────────────────────────────────────────────────
@@ -1859,7 +1866,7 @@ function App() {
       // Ghost the original (keeps it for import dedup but hides it everywhere else)
       // All splits become new transactions
       const splitTxs=editSplits.map(sp=>{
-        const tax=getTaxonomyEntry(taxonomy,sp.category,sp.subcategory);
+        const tax=getTaxonomyEntry(taxonomy,sp.category,sp.subcategory,editForm.typeFilter);
         const rt=tax.type||editForm.typeFilter;
         const sign=rt==="income"?1:rt==="notreported"?1:-1;
         return{id:Date.now()+Math.random(),...base,amount:sign*parseFloat(sp.amount),category:sp.category,subcategory:sp.subcategory,type:rt};
@@ -1869,7 +1876,7 @@ function App() {
     }
     if(!editForm.description||!editForm.amount||!editForm.category||!editForm.subcategory)return;
     const amt=parseFloat(editForm.amount);if(isNaN(amt)||amt<=0)return;
-    const tax=getTaxonomyEntry(taxonomy,editForm.category,editForm.subcategory);
+    const tax=getTaxonomyEntry(taxonomy,editForm.category,editForm.subcategory,editForm.typeFilter);
     const rt=tax.type||editForm.typeFilter,sign=rt==="income"?1:rt==="notreported"?1:-1;
     setTransactions(prev=>prev.map(t=>t.id===editingTx.id?{...t,...base,amount:sign*amt,type:rt,
       category:editForm.category,subcategory:editForm.subcategory}:t));
@@ -1984,6 +1991,9 @@ function App() {
   }
   function resetTaxonomy(){showConfirm("Reset categories to defaults?","All custom categories and budget amounts will be replaced. This cannot be undone.","Reset",true,()=>setTaxonomy(DEFAULT_TAXONOMY));}
   function resetRules(){showConfirm("Reset match rules to defaults?","All custom description rules will be replaced. This cannot be undone.","Reset",true,()=>setDescRules(DEFAULT_DESC_RULES));}
+  function toggleRolloverSub(key){setRolloverSubs(prev=>{const n=new Set(prev);n.has(key)?n.delete(key):n.add(key);return n;});}
+  function toggleRolloverAllSubs(cat,subKeys){const allOn=[...subKeys].every(s=>rolloverSubs.has(cat+"::"+s));setRolloverSubs(prev=>{const n=new Set(prev);subKeys.forEach(s=>{allOn?n.delete(cat+"::"+s):n.add(cat+"::"+s);});return n;});}
+  function setRolloverModeForSub(key,mode){setRolloverMode(prev=>{const n=new Map(prev);n.set(key,mode);return n;});}
   function reRunRules(){
     if(descRules.length===0){showConfirm("No rules to apply","Add some description rules first, then re-run them against your transactions.","OK",false,()=>{});return;}
     const eligible=transactions.filter(t=>t.category==="Not Assigned"||t.subcategory==="Not Assigned");
@@ -2036,25 +2046,17 @@ function App() {
     if(selectedAccountId==="__unlinked__") return active.filter(t=>!t.accountId);
     return active.filter(t=>t.accountId===selectedAccountId);
   },[transactions,selectedAccountId]);
-  const recurringSet = useMemo(()=>{
-    const descMonths={};
-    transactions.filter(t=>!t._splitParent).forEach(t=>{
-      const key=t.description.toLowerCase().trim();
-      if(!descMonths[key])descMonths[key]=new Set();
-      const d=new Date(t.date+"T00:00:00");
-      descMonths[key].add(d.getFullYear()+"-"+d.getMonth());
-    });
-    const s=new Set();
-    Object.entries(descMonths).forEach(([k,months])=>{if(months.size>=2)s.add(k);});
-    return s;
-  },[transactions]);
   const monthlyTx    = useMemo(()=>viewTx.filter(t=>txInMonth(t,monthYear.month,monthYear.year)),[viewTx,monthYear]);
-  const prevMNum     = monthYear.month===0?11:monthYear.month-1;
-  const prevMYear    = monthYear.month===0?monthYear.year-1:monthYear.year;
-  const prevMonthTx  = useMemo(()=>viewTx.filter(t=>txInMonth(t,prevMNum,prevMYear)),[viewTx,monthYear]);
-  const prevMonthStats = useMemo(()=>calcStats(prevMonthTx),[prevMonthTx]);
   const allStats     = useMemo(()=>calcStats(viewTx),[viewTx]);
   const monthlyStats = useMemo(()=>calcStats(monthlyTx),[monthlyTx]);
+  const prevMonthStats = useMemo(()=>{
+    let pm=monthYear.month-1,py=monthYear.year;
+    if(pm<0){pm=11;py--;}
+    const txs=viewTx.filter(t=>{const d=new Date(t.date+"T00:00:00");return d.getFullYear()===py&&d.getMonth()===pm;});
+    let income=0,expenses=0;
+    txs.forEach(t=>{if(t.type==="income")income+=t.amount;else if(t.type==="expense")expenses+=Math.abs(t.amount);});
+    return{income,expenses};
+  },[viewTx,monthYear]);
   const stats        = showMonthly?monthlyStats:allStats;
   const maxCatVal    = useMemo(()=>Math.max(...Object.values(stats.byCat).map(c=>c.total),1),[stats]);
   const filteredTx   = useMemo(()=>{
@@ -2138,7 +2140,16 @@ function App() {
 
   // ── Backup ────────────────────────────────────────────────────────────────
   function handleBackupExport(){
-    const b={version:3,exportedAt:new Date().toISOString(),transactions,taxonomy,descRules,accounts};
+    const b={
+      version:4,
+      exportedAt:new Date().toISOString(),
+      transactions,
+      taxonomy,
+      descRules,
+      accounts,
+      rolloverSubs:[...rolloverSubs],
+      rolloverMode:[...rolloverMode],
+    };
     const blob=new Blob([JSON.stringify(b,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);
     const a=document.createElement("a");a.href=url;a.download=`budget-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);
   }
@@ -2149,13 +2160,15 @@ function App() {
       try{
         const b=JSON.parse(evt.target.result);
         const v=b&&b.version;
-        const isValidVersion=(v===1||v===2||v===3);
+        const isValidVersion=(v===1||v===2||v===3||v===4);
         const hasData=b&&Array.isArray(b.transactions);
         if(!hasData||!isValidVersion){showConfirm("Invalid backup file","This file doesn't appear to be a valid Budget Tracker backup.","OK",false,()=>{});return;}
         const txN=(b.transactions||[]).length,taxN=(b.taxonomy||[]).length,rN=(b.descRules||[]).length,acctN=(b.accounts||[]).length;
-        const detail=`This will permanently overwrite all current data with ${txN} transaction${txN!==1?"s":""}, ${acctN} account${acctN!==1?"s":""}, ${taxN} categor${taxN!==1?"ies":"y"}, and ${rN} rule${rN!==1?"s":""}. This cannot be undone.`
+        const rolloverN=Array.isArray(b.rolloverSubs)?b.rolloverSubs.length:0;
+        const detail=`This will permanently overwrite all current data with ${txN} transaction${txN!==1?"s":""}, ${acctN} account${acctN!==1?"s":""}, ${taxN} categor${taxN!==1?"ies":"y"}, ${rN} rule${rN!==1?"s":""}${rolloverN>0?`, and ${rolloverN} rollover setting${rolloverN!==1?"s":""}`:""}. This cannot be undone.`
           +(v===1?" (Legacy v1 backup — transactions will appear as Not Linked until assigned to an account.)"
-           :v===2?" (v2 backup — nickname fields on transactions and rules will be empty and can be re-added manually.)":"");
+           :v===2?" (v2 backup — nickname fields on transactions and rules will be empty and can be re-added manually.)"
+           :v===3?" (v3 backup — rollover settings were not included and will be reset.)":"");
         pendingBackupRef.current=b;
         showConfirm("Restore this backup?",detail,"Restore Backup",true,()=>{
           const bk=pendingBackupRef.current;
@@ -2176,6 +2189,9 @@ function App() {
           }
           if(Array.isArray(bk.taxonomy)&&bk.taxonomy.length>0)setTaxonomy(bk.taxonomy);
           if(Array.isArray(bk.descRules)&&bk.descRules.length>0)setDescRules(bk.descRules);
+          // Rollover settings (v4+)
+          if(Array.isArray(bk.rolloverSubs))setRolloverSubs(new Set(bk.rolloverSubs));
+          if(Array.isArray(bk.rolloverMode))setRolloverMode(new Map(bk.rolloverMode));
           pendingBackupRef.current=null;
         });
       }catch(err){showConfirm("Could not read file","Make sure it is a valid JSON backup exported from this app.","OK",false,()=>{});}
@@ -2380,7 +2396,8 @@ function App() {
       const ghostOriginal={...item,_splitParent:true};
       delete ghostOriginal.source;
       const splitTxs=reviewSplits.map(sp=>{
-        const tax=getTaxonomyEntry(taxonomy,sp.category,sp.subcategory);
+        const guessType=item.amount<0?"expense":"income";
+        const tax=getTaxonomyEntry(taxonomy,sp.category,sp.subcategory,guessType);
         const rt=tax.type||(item.amount<0?"expense":"income");
         const sign=rt==="income"?1:-1;
         return{id:Date.now()+Math.random(),description:item.description,nickname:item.nickname||"",date:item.date,note:item.note||"",
@@ -2392,7 +2409,7 @@ function App() {
       advanceReview(item.id);return;
     }
     const ed=reviewEdit(item);if(!ed.category||!ed.subcategory)return;
-    const tax=getTaxonomyEntry(taxonomy,ed.category,ed.subcategory);
+    const tax=getTaxonomyEntry(taxonomy,ed.category,ed.subcategory,ed.typeFilter);
     const rt=tax.type||ed.typeFilter,sign=rt==="income"?1:-1;
     const fA=rt==="notreported"?item.amount:sign*Math.abs(item.amount);
     const saved={...item,category:ed.category,subcategory:ed.subcategory,type:rt,amount:fA};
@@ -2648,6 +2665,12 @@ function App() {
                 </select>
               </div>
               <input className="input" placeholder="Note (optional)" value={form.note||""} onChange={e=>setForm(f=>({...f,note:e.target.value}))} onKeyDown={e=>{if(e.key==="Enter")addTransaction();}}/>
+              {accounts.length>0&&(
+                <select className="input" value={form.accountId||""} onChange={e=>setForm(f=>({...f,accountId:e.target.value||null}))}>
+                  <option value="">— Account (optional) —</option>
+                  {accounts.map(a=>{const m=ACCOUNT_TYPE_META[a.type];return(<option key={a.id} value={a.id}>{m?m.icon:""} {a.name}</option>);})}
+                </select>
+              )}
               {dupWarning&&(
                 <div style={{background:"#f97316"+"18",border:"1px solid #f9731644",borderRadius:8,padding:"10px 14px",fontSize:12,color:"#f97316",lineHeight:1.6}}>
                   ⚠ A transaction with the same description, amount, and date already exists. Add anyway?
@@ -2819,7 +2842,7 @@ function App() {
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:20}}>
               {basecards.map(s=>(
                 <div key={s.label} className="stat-card">
-                  <div style={{fontSize:10,letterSpacing:"0.12em",color:"#888",textTransform:"uppercase",marginBottom:5}}>{s.label}</div>
+                  <div style={{fontSize:10,letterSpacing:"0.12em",color:"#737373",textTransform:"uppercase",marginBottom:5}}>{s.label}</div>
                   <div style={{fontSize:"clamp(11px,2vw,17px)",fontWeight:500,color:s.color}}>{s.display}</div>
                 </div>
               ))}
@@ -2832,7 +2855,7 @@ function App() {
           <div>
             <div className="card" style={{padding:20,marginBottom:16}}>
               <div className="sl">Income vs Expenses — Last 12 Months</div>
-              <BarChart transactions={viewTx} currentMonth={monthYear.month} currentYear={monthYear.year} onMonthClick={(m,y)=>setMonthYear({month:m,year:y})}/>
+              <BarChart transactions={viewTx} currentMonth={monthYear.month} currentYear={monthYear.year} onMonthClick={(m,y)=>{setMonthYear({month:m,year:y});setSearchQuery(MONTHS[m].slice(0,3)+" "+y);setTxPage(0);}}/>
             </div>
             <div className="card" style={{marginBottom:20}}>
             <div style={{padding:"14px 16px 0",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
@@ -2870,7 +2893,6 @@ function App() {
                 <button className="btn-ghost" style={{fontSize:10,padding:"2px 8px",marginLeft:"auto"}} onClick={clearFilters}>✕ Clear filters</button>
               </div>
             )}
-            <div style={{fontSize:10,color:"#555555",padding:"5px 16px 8px",letterSpacing:"0.05em",borderBottom:"1px solid #141414"}}>↑ tap to edit &nbsp;·&nbsp; swipe left to delete &nbsp;·&nbsp; tap amount to edit &nbsp;·&nbsp; ✦ rule</div>
             <div>
               {filteredTx.length===0&&<div style={{padding:32,textAlign:"center",color:"#5a5a5a",fontSize:13}}>No transactions found.</div>}
               {pagedGroups.map(group=>(
@@ -2879,7 +2901,7 @@ function App() {
                     <span style={{fontSize:9,letterSpacing:"0.12em",color:"#666",textTransform:"uppercase"}}>{group.label}</span>
                     <span style={{fontSize:9,color:"#3a3a3a"}}>{group.rows.length} item{group.rows.length!==1?"s":""}</span>
                   </div>
-                  {group.rows.map(t=><TxRow key={t.id} t={t} onRemove={removeTx} onEdit={openEditTx} onCreateRule={openCreateRule} onEditAmount={editTxAmount} isRecurring={recurringSet.has(t.description.toLowerCase().trim())}/>)}
+                  {group.rows.map(t=><TxRow key={t.id} t={t} onRemove={removeTx} onEdit={openEditTx} editTxAmount={editTxAmount}/>)}
                 </div>
               ))}
             </div>
@@ -2908,7 +2930,7 @@ function App() {
           <div className="fade-in">
             {/* Month / Year selector */}
             <div className="card" style={{padding:"14px 20px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
-              <button className="btn-icon" style={{padding:"8px 20px"}} onClick={()=>shiftMonth(-1)}>←</button>
+              <button className="btn-icon" onClick={()=>shiftMonth(-1)}>←</button>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <select className="month-select" value={monthYear.month} onChange={e=>setMonthYear(mv=>({...mv,month:parseInt(e.target.value)}))}>
                   {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
@@ -2917,22 +2939,30 @@ function App() {
                   {availableYears.map(y=><option key={y} value={y}>{y}</option>)}
                 </select>
               </div>
-              <button className="btn-icon" style={{padding:"8px 20px"}} onClick={()=>shiftMonth(1)}>→</button>
+              <button className="btn-icon" onClick={()=>shiftMonth(1)}>→</button>
             </div>
 
             {/* Month stats strip */}
             {(()=>{
               const net=monthlyStats.income-monthlyStats.expenses;
               const savRate=monthlyStats.income>0?net/monthlyStats.income*100:null;
-              function delta(curr,prev){if(!prev||prev===0)return null;const pct=(curr-prev)/prev*100;return{pct,up:pct>=0};}
-              const dInc=delta(monthlyStats.income,prevMonthStats.income);
-              const dExp=delta(monthlyStats.expenses,prevMonthStats.expenses);
-              function DeltaBadge({d}){if(!d)return null;return(<span style={{fontSize:9,fontWeight:600,color:d.up?"#10b981":"#f43f5e",background:d.up?"#10b98118":"#f43f5e18",borderRadius:4,padding:"1px 5px",marginLeft:5,letterSpacing:"0.02em"}}>{d.up?"↑":"↓"}{Math.abs(d.pct).toFixed(0)}%</span>);}
               return(
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
-                  <div className="stat-card"><div style={{fontSize:10,letterSpacing:"0.12em",color:"#888",textTransform:"uppercase",marginBottom:5}}>Income</div><div style={{display:"flex",alignItems:"center",flexWrap:"wrap"}}><span style={{fontSize:"clamp(11px,2vw,17px)",fontWeight:500,color:"#10b981"}}>{fmt(monthlyStats.income)}</span><DeltaBadge d={dInc}/></div></div>
-                  <div className="stat-card"><div style={{fontSize:10,letterSpacing:"0.12em",color:"#888",textTransform:"uppercase",marginBottom:5}}>Expenses</div><div style={{display:"flex",alignItems:"center",flexWrap:"wrap"}}><span style={{fontSize:"clamp(11px,2vw,17px)",fontWeight:500,color:"#f43f5e"}}>{fmt(monthlyStats.expenses)}</span><DeltaBadge d={dExp}/></div></div>
-                  <div className="stat-card"><div style={{fontSize:10,letterSpacing:"0.12em",color:"#888",textTransform:"uppercase",marginBottom:5}}>{savRate!==null?"Savings Rate":"Net"}</div><div style={{fontSize:"clamp(11px,2vw,17px)",fontWeight:500,color:net>=0?"#10b981":"#f43f5e"}}>{savRate!==null?savRate.toFixed(1)+"%":fmt(net)}</div></div>
+                  <div className="stat-card">
+                    <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:5}}>
+                      <span style={{fontSize:10,letterSpacing:"0.12em",color:"#737373",textTransform:"uppercase"}}>Income</span>
+                      {prevMonthStats.income>0&&monthlyStats.income>0&&(()=>{const d=(monthlyStats.income-prevMonthStats.income)/prevMonthStats.income*100;return <span style={{fontSize:9,padding:"1px 5px",borderRadius:100,background:d>=0?"#10b98122":"#f43f5e22",color:d>=0?"#10b981":"#f43f5e"}}>{d>=0?"↑":"↓"}{Math.abs(d).toFixed(0)}%</span>;})()}
+                    </div>
+                    <div style={{fontSize:"clamp(11px,2vw,17px)",fontWeight:500,color:"#10b981"}}>{fmt(monthlyStats.income)}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:5}}>
+                      <span style={{fontSize:10,letterSpacing:"0.12em",color:"#737373",textTransform:"uppercase"}}>Expenses</span>
+                      {prevMonthStats.expenses>0&&monthlyStats.expenses>0&&(()=>{const d=(monthlyStats.expenses-prevMonthStats.expenses)/prevMonthStats.expenses*100;return <span style={{fontSize:9,padding:"1px 5px",borderRadius:100,background:d<=0?"#10b98122":"#f43f5e22",color:d<=0?"#10b981":"#f43f5e"}}>{d>=0?"↑":"↓"}{Math.abs(d).toFixed(0)}%</span>;})()}
+                    </div>
+                    <div style={{fontSize:"clamp(11px,2vw,17px)",fontWeight:500,color:"#f43f5e"}}>{fmt(monthlyStats.expenses)}</div>
+                  </div>
+                  <div className="stat-card"><div style={{fontSize:10,letterSpacing:"0.12em",color:"#737373",textTransform:"uppercase",marginBottom:5}}>{savRate!==null?"Savings Rate":"Net"}</div><div style={{fontSize:"clamp(11px,2vw,17px)",fontWeight:500,color:net>=0?"#10b981":"#f43f5e"}}>{savRate!==null?savRate.toFixed(1)+"%":fmt(net)}</div></div>
                 </div>
               );
             })()}
@@ -2980,7 +3010,7 @@ function App() {
         {/* Categories tab: month selector */}
         {activeTab==="categories"&&(
           <div className="card fade-in" style={{padding:"14px 20px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
-            <button className="btn-icon" style={{padding:"8px 20px"}} onClick={()=>shiftMonth(-1)}>←</button>
+            <button className="btn-icon" onClick={()=>shiftMonth(-1)}>←</button>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <select className="month-select" value={monthYear.month} onChange={e=>setMonthYear(mv=>({...mv,month:parseInt(e.target.value)}))}>
                 {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
@@ -2989,7 +3019,7 @@ function App() {
                 {availableYears.map(y=><option key={y} value={y}>{y}</option>)}
               </select>
             </div>
-            <button className="btn-icon" style={{padding:"8px 20px"}} onClick={()=>shiftMonth(1)}>→</button>
+            <button className="btn-icon" onClick={()=>shiftMonth(1)}>→</button>
           </div>
         )}
 
@@ -3002,12 +3032,53 @@ function App() {
             budgetMap[t.category].budget+=(t.budget||0);
             budgetMap[t.category].subs[t.subcategory]=(budgetMap[t.category].subs[t.subcategory]||0)+(t.budget||0);
           });
+
+          // Collect spend per subcategory per month-key, for all months strictly before selected
+          const spendBySubByMonth={}; // { "cat::sub": { "YYYY-MM": amount } }
+          // Also track which month-keys existed in the transaction history before selected month
+          const pastMonthKeys=new Set();
+          viewTx.forEach(t=>{
+            if(t.type!=="expense")return;
+            const d=new Date(t.date+"T00:00:00");
+            const tY=d.getFullYear(),tM=d.getMonth();
+            if(tY>monthYear.year||(tY===monthYear.year&&tM>=monthYear.month))return;
+            const mk=tY+"-"+String(tM+1).padStart(2,"0");
+            pastMonthKeys.add(mk);
+            const k=t.category+"::"+t.subcategory;
+            if(!spendBySubByMonth[k])spendBySubByMonth[k]={};
+            spendBySubByMonth[k][mk]=(spendBySubByMonth[k][mk]||0)+Math.abs(t.amount);
+          });
+
+          // Effective budget per subcategory = base + accumulated rollover across all past months
+          function effectiveSubBudget(cat,sub){
+            const base=budgetMap[cat]?.subs[sub]||0;
+            const key=cat+"::"+sub;
+            if(!rolloverSubs.has(key)||base===0)return{effective:base,rollover:0,base};
+            const mode=rolloverMode.get(key)||"surplus";
+            const monthSpend=spendBySubByMonth[key]||{};
+            let accumulated=0;
+            // Iterate every past month that had any transactions
+            pastMonthKeys.forEach(mk=>{
+              const spent=monthSpend[mk]||0;
+              const delta=mode==="net"?(base-spent):Math.max(0,base-spent);
+              accumulated+=delta;
+            });
+            return{effective:Math.max(0,base+accumulated),rollover:accumulated,base};
+          }
+
+          // Effective budget per category = sum of effective sub budgets
+          function effectiveCatBudget(cat){
+            const subs=Object.keys(budgetMap[cat]?.subs||{});
+            let eff=0,rol=0,base=0;
+            subs.forEach(sub=>{const r=effectiveSubBudget(cat,sub);eff+=r.effective;rol+=r.rollover;base+=r.base;});
+            return{effective:eff,rollover:rol,base};
+          }
+
           const totalBudget=Object.values(budgetMap).reduce((s,c)=>s+c.budget,0);
 
           // Actuals for selected month
           const actualByCat=monthlyStats.byCat; // {cat:{total,subs:{sub:amt}}}
           const totalSpent=monthlyStats.expenses;
-          const remaining=totalBudget-totalSpent;
 
           // All cats that either have a budget or have spending this month
           const allCatKeys=new Set([...Object.keys(budgetMap),...Object.keys(actualByCat)]);
@@ -3020,7 +3091,7 @@ function App() {
           unbudgetedCats.sort((a,b)=>(actualByCat[b]?.total||0)-(actualByCat[a]?.total||0));
 
           function BudgetRow({cat,showAll}){
-            const bud=budgetMap[cat]?.budget||0;
+            const {effective:bud,rollover:catRollover,base:baseBud}=effectiveCatBudget(cat);
             const spent=actualByCat[cat]?.total||0;
             const pct=bud>0?Math.min(spent/bud*100,100):0;
             const over=bud>0&&spent>bud;
@@ -3030,11 +3101,15 @@ function App() {
               ...Object.keys(budgetMap[cat]?.subs||{}),
               ...Object.keys(actualByCat[cat]?.subs||{}),
             ]);
-            const subKeys=showAll?allSubKeys:new Set([...allSubKeys].filter(s=>(budgetMap[cat]?.subs[s]||0)>0||(actualByCat[cat]?.subs[s]||0)>0));
+            const subKeys=[...( showAll?allSubKeys:new Set([...allSubKeys].filter(s=>(budgetMap[cat]?.subs[s]||0)>0||(actualByCat[cat]?.subs[s]||0)>0)) )].sort();
+            const budgetedSubKeys=subKeys.filter(s=>(budgetMap[cat]?.subs[s]||0)>0&&cat!=="Not Assigned");
+            const allSubsRolling=budgetedSubKeys.length>0&&budgetedSubKeys.every(s=>rolloverSubs.has(cat+"::"+s));
+            const anySubRolling=budgetedSubKeys.some(s=>rolloverSubs.has(cat+"::"+s));
             return(
               <div style={{marginBottom:20}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                {/* Category header row */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,gap:8}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                     <div style={{width:8,height:8,borderRadius:"50%",background:catColor(cat),flexShrink:0}}/>
                     <span style={{fontSize:13,fontWeight:500,color:"#ccc"}}>{cat}</span>
                     {util!==null&&(
@@ -3042,72 +3117,136 @@ function App() {
                         {util.toFixed(0)}%
                       </span>
                     )}
-                    {over&&<span style={{fontSize:10,fontWeight:700,color:"#f43f5e",background:"#f43f5e18",borderRadius:100,padding:"1px 8px",border:"1px solid #f43f5e44",lineHeight:1.4}}>!</span>}
-                    {bud===0&&spent>0&&<span style={{fontSize:10,color:"#737373",background:"#1a1a1a",borderRadius:100,padding:"1px 7px"}}>no budget</span>}
+                    {over&&<span style={{fontSize:10,fontWeight:700,color:"#f43f5e",padding:"1px 5px",borderRadius:100,background:"#f43f5e18"}}>!</span>}
+                    {baseBud===0&&spent>0&&<span style={{fontSize:10,color:"#737373",background:"#1a1a1a",borderRadius:100,padding:"1px 7px"}}>no budget</span>}
+                    {/* Toggle-all button */}
+                    {budgetedSubKeys.length>0&&(
+                      <button type="button" onMouseDown={e=>e.preventDefault()}
+                        onClick={()=>toggleRolloverAllSubs(cat,budgetedSubKeys)}
+                        title={allSubsRolling?"Disable rollover for all subcategories":"Enable rollover for all subcategories"}
+                        style={{fontSize:9,padding:"2px 8px",border:"1px solid "+(anySubRolling?"#10b98155":"#2a2a2a"),borderRadius:4,
+                          background:anySubRolling?"#10b98112":"transparent",color:anySubRolling?"#10b981":"#555",
+                          cursor:"pointer",fontFamily:"inherit",letterSpacing:"0.06em",textTransform:"uppercase",transition:"all 0.15s",flexShrink:0}}>
+                        ↻ {allSubsRolling?"all on":anySubRolling?"partial":"all off"}
+                      </button>
+                    )}
                   </div>
-                  <div style={{fontSize:13,color:over?"#f43f5e":"#888",flexShrink:0}}>{fmt(spent)}</div>
+                  <div style={{textAlign:"right",flexShrink:0}}>
+                    <div style={{fontSize:13,color:over?"#f43f5e":"#888"}}>{fmt(spent)}</div>
+                    {anySubRolling&&baseBud>0&&catRollover!==0&&(
+                      <div style={{fontSize:10,color:"#555",marginTop:3,display:"flex",alignItems:"center",gap:4,justifyContent:"flex-end",flexWrap:"wrap"}}>
+                        <span style={{color:"#4a4a4a"}}>{fmt(baseBud)}</span>
+                        <span style={{color:catRollover>0?"#10b981":"#f43f5e",fontWeight:500}}>{catRollover>0?"+":"−"}{fmt(Math.abs(catRollover))}</span>
+                        <span style={{color:"#3a3a3a"}}>=</span>
+                        <span style={{color:"#666"}}>{fmt(bud)}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {bud>0&&(
                   <div style={{background:"#1a1a1a",borderRadius:4,height:6,marginBottom:10,position:"relative",overflow:"hidden"}}>
-                    <div style={{width:pct+"%",height:"100%",borderRadius:4,background:barColor,transition:"width 0.5s ease"}}/>
+                    {anySubRolling&&catRollover!==0&&<div style={{position:"absolute",left:0,top:0,bottom:0,width:(baseBud/bud*100)+"%",background:barColor,opacity:0.3,borderRadius:4}}/>}
+                    <div style={{position:"absolute",left:0,top:0,bottom:0,width:pct+"%",background:barColor,borderRadius:4,transition:"width 0.5s ease"}}/>
+                    {anySubRolling&&catRollover>0&&<div style={{position:"absolute",left:(baseBud/bud*100)+"%",top:0,bottom:0,width:1,background:"#10b98166"}}/>}
                     {over&&<div style={{position:"absolute",inset:0,borderRadius:4,border:"1px solid #f43f5e55"}}/>}
                   </div>
                 )}
-                {[...subKeys].sort().map(sub=>{
+                {subKeys.map(sub=>{
                   const sBud=(budgetMap[cat]?.subs[sub]||0);
                   const sSpent=(actualByCat[cat]?.subs[sub]||0);
-                  const sPct=sBud>0?Math.min(sSpent/sBud*100,100):0;
-                  const sOver=sBud>0&&sSpent>sBud;
-                  const eKey=cat+"::"+sub;
+                  const subKey=cat+"::"+sub;
+                  const {effective:sEff,rollover:sRollover}=effectiveSubBudget(cat,sub);
+                  const sPct=sEff>0?Math.min(sSpent/sEff*100,100):0;
+                  const sOver=sEff>0&&sSpent>sEff;
+                  const eKey=subKey;
                   const isEditing=editingBudgetKey===eKey;
-                  function handleBudgetCommit(e){
-                    commitInlineBudget(cat,sub,e.target.value);
-                  }
-                  function handleBudgetKeyDown(e){
-                    if(e.key==="Enter"){e.target.blur();}
-                    if(e.key==="Escape"){setEditingBudgetKey(null);}
-                  }
+                  const isSubRollover=rolloverSubs.has(subKey);
+                  const subMode=rolloverMode.get(subKey)||"surplus";
+                  function handleBudgetCommit(e){commitInlineBudget(cat,sub,e.target.value);}
+                  function handleBudgetKeyDown(e){if(e.key==="Enter"){e.target.blur();}if(e.key==="Escape"){setEditingBudgetKey(null);}}
                   return(
-                    <div key={sub} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0 5px 16px",borderLeft:"1px solid "+catColor(cat)+"30",marginBottom:3}}>
-                      <div style={{flex:1,fontSize:11,color:"#888888"}}>{sub}</div>
-                      {sBud>0&&!isEditing&&(
-                        <div style={{width:80,background:"#1a1a1a",borderRadius:3,height:3,flexShrink:0}}>
-                          <div style={{width:sPct+"%",height:"100%",borderRadius:3,background:sOver?"#f43f5e":sPct>80?"#f97316":catColor(cat),transition:"width 0.4s ease"}}/>
-                        </div>
-                      )}
-                      <div style={{fontSize:11,textAlign:"right",flexShrink:0,minWidth:80,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4}}>
-                        {isEditing?(
-                          <input
-                            type="number"
-                            className="input-sm"
-                            defaultValue={sBud||""}
-                            placeholder="0.00"
-                            autoFocus
-                            onBlur={handleBudgetCommit}
-                            onKeyDown={handleBudgetKeyDown}
-                            style={{width:80,textAlign:"right",fontSize:11}}
-                          />
-                        ):(
+                    <div key={sub} style={{padding:"6px 0 6px 16px",borderLeft:"1px solid "+catColor(cat)+"30",marginBottom:4}}>
+                      {/* Sub name row + rollover controls */}
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:sBud>0?4:0,flexWrap:"wrap"}}>
+                        <div style={{flex:1,fontSize:11,color:"#888888",minWidth:60}}>{sub}</div>
+                        {/* Rollover controls — only for budgeted subs */}
+                        {sBud>0&&cat!=="Not Assigned"&&(
                           <>
-                            <span style={{color:sOver?"#f43f5e":"#555555"}}>{fmt(sSpent)}</span>
-                            {sBud>0&&<span style={{color:"#444444",marginLeft:2}}>/ </span>}
-                            <span
-                              onClick={()=>setEditingBudgetKey(eKey)}
-                              title="Click to edit budget"
-                              style={{color:sBud>0?"#555555":"#3a3a3a",cursor:"pointer",borderBottom:"1px dashed #333",paddingBottom:1,
-                                      fontSize:sBud>0?11:10,whiteSpace:"nowrap"}}
-                            >
-                              {sBud>0?fmt(sBud):"+ set budget"}
-                            </span>
+                            <button type="button" onMouseDown={e=>e.preventDefault()}
+                              onClick={()=>toggleRolloverSub(subKey)}
+                              style={{fontSize:9,padding:"1px 6px",border:"1px solid "+(isSubRollover?"#10b98155":"#252525"),borderRadius:4,
+                                background:isSubRollover?"#10b98112":"transparent",color:isSubRollover?"#10b981":"#4a4a4a",
+                                cursor:"pointer",fontFamily:"inherit",letterSpacing:"0.05em",transition:"all 0.15s",flexShrink:0}}>
+                              ↻ {isSubRollover?"on":"off"}
+                            </button>
+                            {isSubRollover&&(
+                              <>
+                                <button type="button" onMouseDown={e=>e.preventDefault()}
+                                  onClick={()=>setRolloverModeForSub(subKey,"surplus")}
+                                  title="Carry forward only unspent surplus"
+                                  style={{fontSize:9,padding:"1px 6px",border:"1px solid "+(subMode==="surplus"?"#10b98155":"#252525"),borderRadius:4,
+                                    background:subMode==="surplus"?"#10b98112":"transparent",color:subMode==="surplus"?"#10b981":"#4a4a4a",
+                                    cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s",flexShrink:0}}>
+                                  + only
+                                </button>
+                                <button type="button" onMouseDown={e=>e.preventDefault()}
+                                  onClick={()=>setRolloverModeForSub(subKey,"net")}
+                                  title="Carry forward net difference (overspend reduces next month)"
+                                  style={{fontSize:9,padding:"1px 6px",border:"1px solid "+(subMode==="net"?"#10b98155":"#252525"),borderRadius:4,
+                                    background:subMode==="net"?"#10b98112":"transparent",color:subMode==="net"?"#10b981":"#4a4a4a",
+                                    cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s",flexShrink:0}}>
+                                  +/−
+                                </button>
+                              </>
+                            )}
                           </>
                         )}
+                        {/* Amounts */}
+                        <div style={{fontSize:11,textAlign:"right",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4,minWidth:80}}>
+                          {isEditing?(
+                            <input type="number" className="input-sm" defaultValue={sBud||""} placeholder="0.00" autoFocus
+                              onBlur={handleBudgetCommit} onKeyDown={handleBudgetKeyDown}
+                              style={{width:80,textAlign:"right",fontSize:11}}/>
+                          ):(
+                            <>
+                              <span style={{color:sOver?"#f43f5e":"#555555"}}>{fmt(sSpent)}</span>
+                              {sBud>0&&<span style={{color:"#444444",marginLeft:2}}>/ </span>}
+                              <span onClick={()=>setEditingBudgetKey(eKey)} title="Click to edit budget"
+                                style={{color:sBud>0?"#555555":"#3a3a3a",cursor:"pointer",borderBottom:"1px dashed #333",paddingBottom:1,fontSize:sBud>0?11:10,whiteSpace:"nowrap"}}>
+                                {sBud>0?fmt(sBud):"+ set budget"}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
+                      {/* Sub progress bar + rollover formula */}
+                      {sBud>0&&!isEditing&&(
+                        <div>
+                          <div style={{background:"#1a1a1a",borderRadius:3,height:3,marginBottom:isSubRollover&&sRollover!==0?3:0,position:"relative",overflow:"hidden"}}>
+                            {isSubRollover&&sRollover!==0&&<div style={{position:"absolute",left:0,top:0,bottom:0,width:(sBud/sEff*100)+"%",background:sOver?"#f43f5e":sPct>80?"#f97316":catColor(cat),opacity:0.3,borderRadius:3}}/>}
+                            <div style={{width:sPct+"%",height:"100%",borderRadius:3,background:sOver?"#f43f5e":sPct>80?"#f97316":catColor(cat),transition:"width 0.4s ease"}}/>
+                            {isSubRollover&&sRollover>0&&<div style={{position:"absolute",left:(sBud/sEff*100)+"%",top:0,bottom:0,width:1,background:"#10b98166"}}/>}
+                          </div>
+                          {isSubRollover&&sRollover!==0&&(
+                            <div style={{display:"flex",alignItems:"center",gap:4,fontSize:9,color:"#3a3a3a",justifyContent:"flex-end"}}>
+                              <span>{fmt(sBud)}</span>
+                              <span style={{color:sRollover>0?"#10b981":"#f43f5e"}}>{sRollover>0?"+":"−"}{fmt(Math.abs(sRollover))}</span>
+                              <span>=</span>
+                              <span style={{color:"#555"}}>{fmt(sEff)}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
             );
           }
+
+          const totalRollover=budgetedCats.reduce((s,cat)=>s+effectiveCatBudget(cat).rollover,0);
+          const totalEffectiveBudget=budgetedCats.reduce((s,cat)=>s+effectiveCatBudget(cat).effective,0);
+          const remaining=totalEffectiveBudget-totalSpent;
 
           return(
             <div className="fade-in">
@@ -3116,17 +3255,42 @@ function App() {
                 <div className="card" style={{padding:"16px 20px",marginBottom:16}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                     <div style={{fontSize:10,letterSpacing:"0.14em",color:"#737373",textTransform:"uppercase"}}>Overall Budget Usage</div>
-                    <div style={{fontSize:12,color:totalSpent>totalBudget?"#f43f5e":"#666"}}>
-                      {totalBudget>0?((totalSpent/totalBudget)*100).toFixed(1):0}%
+                    <div style={{fontSize:12,color:totalSpent>totalEffectiveBudget?"#f43f5e":"#666"}}>
+                      {totalEffectiveBudget>0?((totalSpent/totalEffectiveBudget)*100).toFixed(1):0}%
                     </div>
                   </div>
                   <div style={{background:"#1a1a1a",borderRadius:6,height:10,position:"relative",overflow:"hidden"}}>
-                    <div style={{width:(Math.min(totalSpent/totalBudget,1)*100)+"%",height:"100%",borderRadius:6,
-                      background:totalSpent>totalBudget?"#f43f5e":totalSpent/totalBudget>0.8?"#f97316":"#10b981",
+                    <div style={{width:(Math.min(totalSpent/totalEffectiveBudget,1)*100)+"%",height:"100%",borderRadius:6,
+                      background:totalSpent>totalEffectiveBudget?"#f43f5e":totalSpent/totalEffectiveBudget>0.8?"#f97316":"#10b981",
                       transition:"width 0.6s ease"}}/>
                   </div>
-                  {totalSpent>totalBudget&&(
-                    <div style={{fontSize:11,color:"#f43f5e",marginTop:8}}>⚠ Over budget by {fmt(totalSpent-totalBudget)}</div>
+                  {/* Budget + rollover totals */}
+                  <div style={{display:"flex",gap:16,marginTop:12,flexWrap:"wrap"}}>
+                    <div>
+                      <div style={{fontSize:9,letterSpacing:"0.12em",color:"#555",textTransform:"uppercase",marginBottom:3}}>Base Budget</div>
+                      <div style={{fontSize:13,color:"#888"}}>{fmt(totalBudget)}</div>
+                    </div>
+                    {totalRollover!==0&&(
+                      <div>
+                        <div style={{fontSize:9,letterSpacing:"0.12em",color:"#555",textTransform:"uppercase",marginBottom:3}}>Rollover</div>
+                        <div style={{fontSize:13,color:totalRollover>0?"#10b981":"#f43f5e",fontWeight:500}}>
+                          {totalRollover>0?"+":"−"}{fmt(Math.abs(totalRollover))}
+                        </div>
+                      </div>
+                    )}
+                    {totalRollover!==0&&(
+                      <div>
+                        <div style={{fontSize:9,letterSpacing:"0.12em",color:"#555",textTransform:"uppercase",marginBottom:3}}>Effective</div>
+                        <div style={{fontSize:13,color:"#aaa"}}>{fmt(totalEffectiveBudget)}</div>
+                      </div>
+                    )}
+                    <div style={{marginLeft:"auto",textAlign:"right"}}>
+                      <div style={{fontSize:9,letterSpacing:"0.12em",color:"#555",textTransform:"uppercase",marginBottom:3}}>Spent</div>
+                      <div style={{fontSize:13,color:totalSpent>totalEffectiveBudget?"#f43f5e":"#888"}}>{fmt(totalSpent)}</div>
+                    </div>
+                  </div>
+                  {totalSpent>totalEffectiveBudget&&(
+                    <div style={{fontSize:11,color:"#f43f5e",marginTop:10}}>⚠ Over budget by {fmt(totalSpent-totalEffectiveBudget)}</div>
                   )}
                 </div>
               )}
@@ -3285,6 +3449,33 @@ function App() {
                       <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Nickname <span style={{color:"#555",letterSpacing:"0.04em",textTransform:"none"}}>— optional display name for matched transactions</span></div>
                       <input className="input-sm" placeholder="Leave blank to use original description" value={newRule.nickname||""} maxLength={100} onChange={e=>setNewRule(f=>({...f,nickname:e.target.value}))}/>
                     </div>
+                    {rulePreviewMatches.length>0&&(
+                      <div style={{borderRadius:8,border:"1px solid #8b5cf633",background:"#0f0f0f",overflow:"hidden"}}>
+                        <div style={{padding:"7px 12px",borderBottom:"1px solid #1a1a1a",display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{fontSize:9,letterSpacing:"0.14em",color:"#8b5cf6",textTransform:"uppercase"}}>Pattern Preview</span>
+                          <span style={{fontSize:10,color:"#555"}}>{rulePreviewMatches.length} existing transaction{rulePreviewMatches.length!==1?"s":""} would match</span>
+                        </div>
+                        {rulePreviewMatches.map(t=>{
+                          const amtColor=t.type==="income"?"#10b981":t.type==="notreported"?"#9ca3af":"#f43f5e";
+                          const prefix=t.type==="income"?"+":t.type==="notreported"?"±":"";
+                          return(
+                            <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 12px",borderBottom:"1px solid #141414"}}>
+                              <div style={{width:6,height:6,borderRadius:"50%",background:catColor(t.category),flexShrink:0}}/>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:12,color:"#ccc",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.description}</div>
+                                <div style={{fontSize:10,color:"#555",marginTop:2}}>{t.date} &nbsp;·&nbsp; <span style={{color:catColor(t.category)}}>{t.category}</span>{t.subcategory?<span style={{color:"#444"}}> / {t.subcategory}</span>:null}</div>
+                              </div>
+                              <div style={{fontSize:12,fontWeight:500,color:amtColor,flexShrink:0,whiteSpace:"nowrap"}}>{prefix}{fmt(Math.abs(t.amount))}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {newRule.pattern.trim()&&isSafePattern(newRule.pattern.trim())&&rulePreviewMatches.length===0&&(
+                      <div style={{padding:"8px 12px",borderRadius:8,border:"1px solid #1e1e1e",background:"#0f0f0f",fontSize:11,color:"#555",textAlign:"center"}}>
+                        No existing transactions match this pattern
+                      </div>
+                    )}
                     <button className="btn btn-primary" onClick={addRuleEntry} style={{width:"100%",padding:"9px"}}>+ Add Rule</button>
                   </div>
                 </div>
@@ -3518,6 +3709,33 @@ function App() {
                       <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Nickname <span style={{color:"#555",letterSpacing:"0.04em",textTransform:"none"}}>— optional display name for matched transactions</span></div>
                       <input className="input-sm" placeholder="Leave blank to use original description" value={newRule.nickname||""} maxLength={100} onChange={e=>setNewRule(f=>({...f,nickname:e.target.value}))}/>
                     </div>
+                    {rulePreviewMatches.length>0&&(
+                      <div style={{borderRadius:8,border:"1px solid #8b5cf633",background:"#0f0f0f",overflow:"hidden"}}>
+                        <div style={{padding:"7px 12px",borderBottom:"1px solid #1a1a1a",display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{fontSize:9,letterSpacing:"0.14em",color:"#8b5cf6",textTransform:"uppercase"}}>Pattern Preview</span>
+                          <span style={{fontSize:10,color:"#555"}}>{rulePreviewMatches.length} existing transaction{rulePreviewMatches.length!==1?"s":""} would match</span>
+                        </div>
+                        {rulePreviewMatches.map(t=>{
+                          const amtColor=t.type==="income"?"#10b981":t.type==="notreported"?"#9ca3af":"#f43f5e";
+                          const prefix=t.type==="income"?"+":t.type==="notreported"?"±":"";
+                          return(
+                            <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 12px",borderBottom:"1px solid #141414"}}>
+                              <div style={{width:6,height:6,borderRadius:"50%",background:catColor(t.category),flexShrink:0}}/>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:12,color:"#ccc",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.description}</div>
+                                <div style={{fontSize:10,color:"#555",marginTop:2}}>{t.date} &nbsp;·&nbsp; <span style={{color:catColor(t.category)}}>{t.category}</span>{t.subcategory?<span style={{color:"#444"}}> / {t.subcategory}</span>:null}</div>
+                              </div>
+                              <div style={{fontSize:12,fontWeight:500,color:amtColor,flexShrink:0,whiteSpace:"nowrap"}}>{prefix}{fmt(Math.abs(t.amount))}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {newRule.pattern.trim()&&isSafePattern(newRule.pattern.trim())&&rulePreviewMatches.length===0&&(
+                      <div style={{padding:"8px 12px",borderRadius:8,border:"1px solid #1e1e1e",background:"#0f0f0f",fontSize:11,color:"#555",textAlign:"center"}}>
+                        No existing transactions match this pattern
+                      </div>
+                    )}
                     <button className="btn btn-primary" onClick={addRuleEntry} style={{width:"100%",padding:"9px"}}>+ Add Rule</button>
                   </div>
                 </div>
@@ -3801,224 +4019,21 @@ function App() {
       })()}
 
 
-      {/* ── ONBOARDING OVERLAY ── */}
-      {isNewUser&&loaded&&(()=>{
-        const STEPS=["category","rule","transaction"];
-        const stepIdx=STEPS.indexOf(onboardStep);
-        const obExpCats=computeExpenseCats(taxonomy);
-        const obIncCats=computeIncomeCats(taxonomy);
-        const obRuleCats=obRule.type==="income"?obIncCats:obExpCats;
-        const obRuleSubcats=obRule.category?getSubcats(taxonomy,obRule.category,obRule.type==="auto"?"expense":obRule.type):[];
-        const obTxCats=obTx.typeFilter==="income"?obIncCats:obExpCats;
-        const obTxSubcats=obTx.category?getSubcats(taxonomy,obTx.category,obTx.typeFilter):[];
-
-        const Hint=({children})=>(
-          <div style={{display:"flex",gap:8,padding:"10px 12px",background:"#0d1a0d",border:"1px solid #10b98122",borderRadius:8,marginBottom:12}}>
-            <span style={{fontSize:14,flexShrink:0}}>💡</span>
-            <span style={{fontSize:11,color:"#6ee7b7",lineHeight:1.6}}>{children}</span>
-          </div>
-        );
-
-        const StepDots=()=>(
-          <div style={{display:"flex",gap:6,justifyContent:"center",marginBottom:24}}>
-            {STEPS.map((s,i)=>(
-              <div key={s} style={{width:6,height:6,borderRadius:"50%",background:i<stepIdx?"#10b981":i===stepIdx?"#e8e0d5":"#2a2a2a",transition:"background 0.3s"}}/>
-            ))}
-          </div>
-        );
-
-        return(
-          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16,overflowY:"auto"}}>
-            <div style={{background:"#141414",border:"1px solid #2a2a2a",borderRadius:18,width:"100%",maxWidth:480,boxShadow:"0 32px 80px rgba(0,0,0,0.8)",overflow:"hidden"}}>
-
-              {/* ── Welcome ── */}
-              {onboardStep==="welcome"&&(
-                <div style={{padding:"40px 36px 36px",textAlign:"center"}}>
-                  <div style={{fontSize:32,marginBottom:16}}>💰</div>
-                  <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:900,color:"#e8e0d5",marginBottom:10,lineHeight:1.2}}>Welcome to<br/>Budget Tracker</h2>
-                  <p style={{fontSize:13,color:"#888888",lineHeight:1.8,marginBottom:28}}>
-                    Track your income and expenses, set up auto-categorisation rules, and understand where your money goes.<br/>
-                    <span style={{color:"#606060"}}>This takes about 2 minutes.</span>
-                  </p>
-                  <div style={{display:"grid",gap:8,textAlign:"left",marginBottom:28}}>
-                    {[["📂","Add a category","Organise transactions into groups like Groceries or Rent"],["⚡","Create a rule","Auto-categorise future imports by description"],["✏️","Log a transaction","Add your first expense or income manually"]].map(([icon,title,desc])=>(
-                      <div key={title} style={{display:"flex",gap:12,padding:"10px 14px",background:"#1a1a1a",borderRadius:9,alignItems:"flex-start"}}>
-                        <span style={{fontSize:18,flexShrink:0}}>{icon}</span>
-                        <div>
-                          <div style={{fontSize:12,color:"#bbb",fontWeight:500,marginBottom:2}}>{title}</div>
-                          <div style={{fontSize:11,color:"#888888",lineHeight:1.5}}>{desc}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <button className="btn btn-primary" style={{width:"100%",padding:14,fontSize:14}} onClick={()=>setOnboardStep("category")}>Get Started →</button>
-                  <button className="btn-ghost" style={{width:"100%",marginTop:8,fontSize:11,color:"#5a5a5a"}} onClick={obFinish}>Skip setup and go straight to the app</button>
-                </div>
-              )}
-
-              {/* ── Step 1: Category ── */}
-              {onboardStep==="category"&&(
-                <div style={{padding:"32px 28px 28px"}}>
-                  <StepDots/>
-                  <div style={{fontSize:9,letterSpacing:"0.2em",color:"#888888",textTransform:"uppercase",marginBottom:6}}>Step 1 of 3</div>
-                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:"#e8e0d5",marginBottom:6}}>Add a Category</div>
-                  <p style={{fontSize:12,color:"#888888",lineHeight:1.7,marginBottom:16}}>Categories group your transactions. You already have a few defaults — add one that's personal to you, or continue with what's there.</p>
-                  <Hint>Categories can be broad like <strong style={{color:"#a7f3d0"}}>Housing</strong> or specific like <strong style={{color:"#a7f3d0"}}>Car</strong>. Subcategories let you break them down further — e.g. <em style={{color:"#6ee7b7"}}>Mortgage</em> or <em style={{color:"#6ee7b7"}}>Fuel</em>.</Hint>
-
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                    <div>
-                      <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Category</div>
-                      <input className="input-sm" style={{width:"100%"}} placeholder="e.g. Housing" value={obCat.category} onChange={e=>setObCat(f=>({...f,category:e.target.value}))} autoFocus/>
-                    </div>
-                    <div>
-                      <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Subcategory</div>
-                      <input className="input-sm" style={{width:"100%"}} placeholder="e.g. Mortgage" value={obCat.subcategory} onChange={e=>setObCat(f=>({...f,subcategory:e.target.value}))}/>
-                    </div>
-                  </div>
-                  <div style={{marginBottom:16}}>
-                    <div style={{fontSize:9,color:"#737373",marginBottom:6,letterSpacing:"0.1em",textTransform:"uppercase"}}>Type</div>
-                    <div style={{display:"flex",gap:6}}>
-                      {["expense","income","notreported"].map(t=>(
-                        <button key={t} className={"btn chip "+(obCat.type===t?"chip-active":"chip-inactive")} style={{fontSize:10,padding:"3px 10px"}} onClick={()=>setObCat(f=>({...f,type:t}))}>
-                          {t==="notreported"?"Not Reported":t[0].toUpperCase()+t.slice(1)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{display:"grid",gap:8}}>
-                    <button className="btn btn-primary" style={{width:"100%",padding:12,opacity:obCat.category.trim()&&obCat.subcategory.trim()?1:0.4}} onClick={obCommitCategory}>Add &amp; Continue →</button>
-                    <button className="btn-ghost" style={{width:"100%",fontSize:11,color:"#737373"}} onClick={()=>setOnboardStep("rule")}>Skip — use defaults for now</button>
-                  </div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:14}}>
-                    <span style={{fontSize:9,color:"#5a5a5a",letterSpacing:"0.08em",textTransform:"uppercase",width:"100%",marginBottom:2}}>Your current categories</span>
-                    {[...new Set(taxonomy.filter(t=>t.category!=="Not Assigned").map(t=>t.category))].map(c=>(
-                      <span key={c} style={{fontSize:10,background:"#1e1e1e",color:"#888888",borderRadius:5,padding:"2px 8px"}}>{c}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* ── Step 2: Rule ── */}
-              {onboardStep==="rule"&&(
-                <div style={{padding:"32px 28px 28px"}}>
-                  <StepDots/>
-                  <div style={{fontSize:9,letterSpacing:"0.2em",color:"#888888",textTransform:"uppercase",marginBottom:6}}>Step 2 of 3</div>
-                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:"#e8e0d5",marginBottom:6}}>Create an Auto-Rule</div>
-                  <p style={{fontSize:12,color:"#888888",lineHeight:1.7,marginBottom:16}}>Rules automatically categorise transactions when you import a bank statement. This step is optional — you can add rules later.</p>
-                  <Hint>The pattern is matched against transaction descriptions. For example, the pattern <strong style={{color:"#a7f3d0"}}>NETFLIX</strong> would match any description containing "Netflix".</Hint>
-
-                  <div style={{display:"grid",gap:8,marginBottom:8}}>
-                    <div>
-                      <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Match Pattern</div>
-                      <input className="input-sm" style={{width:"100%",fontFamily:"monospace",color:"#8b5cf6"}} placeholder="e.g. NETFLIX|SPOTIFY" value={obRule.pattern} onChange={e=>{setObRuleError("");setObRule(f=>({...f,pattern:e.target.value}));}}/>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                      <div>
-                        <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Category</div>
-                        <select className="input-sm" value={obRule.category} onChange={e=>setObRule(f=>({...f,category:e.target.value,subcategory:""}))} style={{width:"100%"}}>
-                          <option value="">— Select —</option>
-                          {obRuleCats.map(c=><option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Subcategory</div>
-                        <select className="input-sm" value={obRule.subcategory} disabled={!obRule.category} onChange={e=>setObRule(f=>({...f,subcategory:e.target.value}))} style={{width:"100%"}}>
-                          <option value="">— Select —</option>
-                          {obRuleSubcats.map(s=><option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{fontSize:9,color:"#737373",marginBottom:6,letterSpacing:"0.1em",textTransform:"uppercase"}}>Classification</div>
-                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                        {[{v:"auto",l:"Auto (by sign)"},{v:"expense",l:"Force Expense"},{v:"income",l:"Force Income"}].map(({v,l})=>(
-                          <button key={v} className={"btn chip "+(obRule.type===v?"chip-active":"chip-inactive")} style={{fontSize:10,padding:"3px 10px"}} onClick={()=>setObRule(f=>({...f,type:v,category:"",subcategory:""}))}>
-                            {l}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  {obRuleError&&<div style={{fontSize:11,color:"#f43f5e",marginBottom:8}}>{obRuleError}</div>}
-                  <div style={{display:"grid",gap:8}}>
-                    <button className="btn btn-primary" style={{width:"100%",padding:12}} onClick={obCommitRule}>Save Rule &amp; Continue →</button>
-                    <button className="btn-ghost" style={{width:"100%",fontSize:11,color:"#737373"}} onClick={()=>setOnboardStep("transaction")}>Skip — add rules later</button>
-                  </div>
-                </div>
-              )}
-
-              {/* ── Step 3: Transaction ── */}
-              {onboardStep==="transaction"&&(
-                <div style={{padding:"32px 28px 28px"}}>
-                  <StepDots/>
-                  <div style={{fontSize:9,letterSpacing:"0.2em",color:"#888888",textTransform:"uppercase",marginBottom:6}}>Step 3 of 3</div>
-                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:"#e8e0d5",marginBottom:6}}>Log Your First Transaction</div>
-                  <p style={{fontSize:12,color:"#888888",lineHeight:1.7,marginBottom:16}}>Add any recent expense or income. You can always import from a bank statement later for bulk entry.</p>
-                  <Hint>Enter the amount as a positive number — the type you select (Expense or Income) controls the sign automatically.</Hint>
-
-                  <div style={{display:"grid",gap:8,marginBottom:8}}>
-                    <div style={{display:"flex",gap:6}}>
-                      {["expense","income"].map(t=>(
-                        <button key={t} className={"btn chip "+(obTx.typeFilter===t?"chip-active":"chip-inactive")} style={{fontSize:11,padding:"5px 14px"}} onClick={()=>setObTx(f=>({...f,typeFilter:t,category:"",subcategory:""}))}>
-                          {t[0].toUpperCase()+t.slice(1)}
-                        </button>
-                      ))}
-                    </div>
-                    <input className="input-sm" style={{width:"100%"}} placeholder="Description (e.g. Grocery run)" value={obTx.description} onChange={e=>setObTx(f=>({...f,description:e.target.value}))}/>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                      <input className="input-sm" type="number" placeholder="Amount" min="0.01" value={obTx.amount} onChange={e=>{setObAmtError("");setObTx(f=>({...f,amount:e.target.value}));}}/>
-                      <input className="input-sm" type="date" value={obTx.date} onChange={e=>setObTx(f=>({...f,date:e.target.value}))}/>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                      <div>
-                        <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Category</div>
-                        <select className="input-sm" value={obTx.category} onChange={e=>{const subs=getSubcats(taxonomy,e.target.value,obTx.typeFilter);setObTx(f=>({...f,category:e.target.value,subcategory:subs[0]||""}));}} style={{width:"100%"}}>
-                          <option value="">— Select —</option>
-                          {obTxCats.map(c=><option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <div style={{fontSize:9,color:"#737373",marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Subcategory</div>
-                        <select className="input-sm" value={obTx.subcategory} disabled={!obTx.category} onChange={e=>setObTx(f=>({...f,subcategory:e.target.value}))} style={{width:"100%"}}>
-                          <option value="">— Select —</option>
-                          {obTxSubcats.map(s=><option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                  {obAmtError&&<div style={{fontSize:11,color:"#f43f5e",marginBottom:8}}>{obAmtError}</div>}
-                  <div style={{display:"grid",gap:8}}>
-                    <button className="btn btn-primary" style={{width:"100%",padding:12}} onClick={obCommitTransaction}>Add Transaction &amp; Finish →</button>
-                    <button className="btn-ghost" style={{width:"100%",fontSize:11,color:"#737373"}} onClick={obFinish}>Skip — I'll add transactions later</button>
-                  </div>
-                </div>
-              )}
-
-              {/* ── Done ── */}
-              {onboardStep==="done"&&(
-                <div style={{padding:"48px 36px 40px",textAlign:"center"}}>
-                  <div style={{fontSize:40,marginBottom:16}}>🎉</div>
-                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:"#e8e0d5",marginBottom:10}}>You're all set!</div>
-                  <p style={{fontSize:12,color:"#888888",lineHeight:1.8,marginBottom:28}}>
-                    Your categories, rules, and first transaction have been saved.<br/>
-                    Import a bank statement anytime using the <strong style={{color:"#bbbbbb"}}>↑ Import</strong> button, or add transactions manually with <strong style={{color:"#bbbbbb"}}>+ Add</strong>.
-                  </p>
-                  <div style={{display:"grid",gap:8,fontSize:11,color:"#737373",textAlign:"left",marginBottom:28}}>
-                    {[["⚙ Edit tab","Manage categories and rules at any time"],["↑ Import","Import .xlsx or .csv bank statements"],["Monthly View","See charts and breakdowns by month"]].map(([k,v])=>(
-                      <div key={k} style={{display:"flex",gap:10,padding:"8px 12px",background:"#1a1a1a",borderRadius:8}}>
-                        <span style={{color:"#888888",fontWeight:500,whiteSpace:"nowrap"}}>{k}</span>
-                        <span style={{color:"#606060"}}>{v}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <button className="btn btn-primary" style={{width:"100%",padding:14,fontSize:14}} onClick={obFinish}>Go to Budget Tracker →</button>
-                </div>
-              )}
-
+      {/* ── WELCOME OVERLAY ── */}
+      {isNewUser&&loaded&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16}}>
+          <div style={{background:"#141414",border:"1px solid #2a2a2a",borderRadius:18,width:"100%",maxWidth:400,padding:"44px 36px 40px",textAlign:"center",boxShadow:"0 32px 80px rgba(0,0,0,0.8)"}}>
+            <div style={{fontSize:32,marginBottom:16}}>💰</div>
+            <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:900,color:"#e8e0d5",marginBottom:10,lineHeight:1.2}}>Welcome to<br/>Budget Tracker</h2>
+            <p style={{fontSize:13,color:"#888888",lineHeight:1.8,marginBottom:32}}>Track your income and expenses and understand where your money goes.</p>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <button className="btn btn-primary" style={{padding:14,fontSize:14}} onClick={()=>{obFinish();setTimeout(()=>{setShowImport(true);resetImport();},50);}}>↑ Import a Bank Statement</button>
+              <button className="btn btn-secondary" style={{padding:12,fontSize:13}} onClick={()=>{obFinish();setTimeout(()=>setShowForm(true),50);}}>+ Add a Transaction Manually</button>
+              <button className="btn-ghost" style={{fontSize:11,color:"#5a5a5a",marginTop:4}} onClick={obFinish}>Explore first</button>
             </div>
           </div>
-        );
-      })()}
+        </div>
+      )}
       {createRuleTx&&(
         <CreateRuleModal tx={createRuleTx} taxonomy={taxonomy} onSave={saveCreatedRule} onCancel={()=>setCreateRuleTx(null)}/>
       )}
