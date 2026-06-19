@@ -2476,9 +2476,13 @@ function App() {
           </div>
         </div>
 
-        {/* Import panel */}
+        {/* Import panel — rendered as modal overlay */}
         {showImport&&(
-          <div className="card fade-in" style={{marginBottom:20}}>
+          <div className="modal-overlay" style={{zIndex:400}} onClick={()=>{setShowImport(false);resetImport();}}>
+          <div className="modal-box" style={{maxWidth:700,width:"100%",padding:0}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"flex-end",padding:"10px 14px 0"}}>
+              <button className="btn-icon" onClick={()=>{setShowImport(false);resetImport();}} style={{fontSize:18,lineHeight:1}}>×</button>
+            </div>
 
             {/* ── Step 1: Account selection + file pick ── */}
             {importStep==="type"&&(
@@ -2653,6 +2657,7 @@ function App() {
               );
             })()}
 
+          </div>
           </div>
         )}
 
